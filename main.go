@@ -22,6 +22,7 @@ const usage = `gh-get - download a folder (or a whole repo) from GitHub
 Usage:
   gh-get <github-url> [destination] [--force] [--ref REF] [--token TOKEN]
   gh-get update [--ref REF]
+  gh-get --install
   gh-get --version | --help
 
 Description:
@@ -52,6 +53,8 @@ Examples:
   cd ./guide && gh-get update
 
 Options:
+      --install      Copy gh-get into a per-user bin dir on your PATH
+                     (no admin required) so it can be run from anywhere
   -f, --force        Overwrite the destination if it already exists
       --ref REF      Branch, tag or commit to use; overrides the ref in the URL.
                      With "update", switches the folder to this ref.
@@ -80,6 +83,11 @@ func run(args []string) error {
 	case "-v", "--version":
 		fmt.Println("gh-get " + version)
 		return nil
+	case "--install":
+		if len(args) > 1 {
+			return fmt.Errorf("--install takes no other arguments")
+		}
+		return runInstall()
 	}
 
 	var (
