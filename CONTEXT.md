@@ -111,6 +111,23 @@ winget manifest are deferred to a later milestone.**
 - Dedicated public repo `paulocorcino/gh-get` + MIT license.
 - CI (`ci.yml`): build + vet + test on push/PR.
 - Release (`release.yml`): cross-compile 6 targets → GitHub Release on `v*` tags.
+  Publishes both versioned archives (`.zip`/`.tar.gz`) and raw,
+  directly-downloadable binaries (`gh-get_<os>_<arch>[.exe]`) + `checksums.txt`.
+- `--install` (`install.go`): self-copies the running binary into a per-user bin
+  dir — `%LOCALAPPDATA%\Programs\gh-get` on Windows, `~/.local/bin` on Unix — and
+  puts it on PATH with no admin/root. Windows edits the user PATH via PowerShell
+  `[Environment]::SetEnvironmentVariable(...,'User')` (avoids `setx` truncation);
+  Unix only prints the `export` line (never edits shell rc files). Idempotent via
+  `os.SameFile`. Tests in `install_test.go` cover the pure PATH helpers.
+- GitHub discoverability: repo description + topics set; README has badges, an
+  AI-agent positioning section, and an SEO keyword footer.
+
+## Release/versioning policy
+
+- Bump the tag for every published change (`v0.1.1`, `v0.2.0`, …). Do **not**
+  force-move an already-published tag. v0.1.0 was force-moved once (during
+  bring-up, before wide distribution) to fold in `--install` + direct binaries;
+  treat that as a one-off, not the pattern going forward.
 
 ## Deferred
 
