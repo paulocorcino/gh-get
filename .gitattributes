@@ -1,0 +1,6 @@
+# Normalize line endings: store everything as LF in the repo.
+* text=auto eol=lf
+
+# Binary archives produced by the release workflow.
+*.zip binary
+*.tar.gz binary
