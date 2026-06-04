@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
-          cache: true
+          cache: false # stdlib-only project: no go.sum to cache
       - name: Verify formatting
         run: |
           fmt=$(gofmt -l .)
