@@ -44,8 +44,7 @@ func (c *Client) listFolder(src ghurl.Source) (entries []treeEntry, ok bool, err
 		if e.Type != "blob" {
 			continue
 		}
-		// Empty folder => whole repo: keep every blob.
-		if folder == "" || e.Path == folder || strings.HasPrefix(e.Path, folder+"/") {
+		if _, ok := folderMember(folder, e.Path); ok {
 			entries = append(entries, e)
 		}
 	}
@@ -56,10 +55,12 @@ func (c *Client) listFolder(src ghurl.Source) (entries []treeEntry, ok bool, err
 // into destDir. A rate-limit error is returned unwrapped so the orchestrator can
 // fall back to the tarball.
 func (c *Client) downloadViaTrees(src ghurl.Source, entries []treeEntry, destDir string, warn func(string)) error {
-	base := strings.Trim(src.Path, "/")
+	folder := strings.Trim(src.Path, "/")
 	for _, e := range entries {
-		rel := strings.TrimPrefix(e.Path, base)
-		rel = strings.TrimPrefix(rel, "/")
+		rel, ok := folderMember(folder, e.Path)
+		if !ok {
+			continue
+		}
 
 		rawURL := fmt.Sprintf("%s/%s/%s/%s/%s",
 			rawBase, src.Owner, src.Repo, url.PathEscape(src.Commit), escapePath(e.Path))

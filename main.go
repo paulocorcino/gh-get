@@ -3,12 +3,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
+	destpolicy "github.com/paulocorcino/gh-get/internal/dest"
 	"github.com/paulocorcino/gh-get/internal/fetch"
 	"github.com/paulocorcino/gh-get/internal/ghurl"
 	"github.com/paulocorcino/gh-get/internal/meta"
@@ -187,30 +190,43 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 		dest = "./" + name
 	}
 
-	if _, err := os.Lstat(dest); err == nil {
-		if !force {
-			return fmt.Errorf("destination already exists: %s (use --force to overwrite)", dest)
-		}
-		if err := os.RemoveAll(dest); err != nil {
-			return err
-		}
+	// Decide how to write the destination (in-place / replace / refuse) using the
+	// pure policy in internal/dest; only the existence check touches the disk.
+	abs, err := filepath.Abs(dest)
+	if err != nil {
+		return err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	_, statErr := os.Lstat(dest)
+	exists := statErr == nil
+
+	plan := destpolicy.Resolve(abs, cwd, exists, force)
+	mode := fetch.Replace
+	switch plan.Action {
+	case destpolicy.Refuse:
+		return fmt.Errorf("%s", plan.Reason)
+	case destpolicy.WriteInPlace:
+		mode = fetch.Merge
 	}
 
 	folderLabel := src.Path
 	if folderLabel == "" {
 		folderLabel = "(whole repo)"
 	}
+	destLabel := dest
+	if plan.Action == destpolicy.WriteInPlace {
+		destLabel = dest + " (in place — existing files with the same name are overwritten)"
+	}
 	fmt.Println("Downloading from GitHub...")
 	fmt.Printf("  Repository: %s/%s\n", src.Owner, src.Repo)
 	fmt.Printf("  Ref:        %s\n", src.Ref)
 	fmt.Printf("  Folder:     %s\n", folderLabel)
-	fmt.Printf("  Destination:%s\n\n", " "+dest)
+	fmt.Printf("  Destination:%s\n\n", " "+destLabel)
 
-	if err := os.MkdirAll(dest, 0o755); err != nil {
-		return err
-	}
-	if err := client.Download(src, dest, warn); err != nil {
-		os.RemoveAll(dest) // don't leave a half-written/empty folder behind
+	if err := client.Materialize(src, dest, mode, warn); err != nil {
 		return err
 	}
 	if err := meta.Write(dest, metaFrom(src)); err != nil {
@@ -268,21 +284,9 @@ func runUpdate(token, refOverride string) error {
 	fmt.Printf("  Source: %s\n", m.SourceURL)
 	fmt.Printf("  Dest:   %s\n\n", cwd)
 
-	// Download to a temp dir first so a failure never destroys local content.
-	tmp, err := os.MkdirTemp("", "gh-get-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
-
-	if err := client.Download(src, tmp, warn); err != nil {
-		return err
-	}
-
-	if err := clearExcept(cwd, meta.FileName); err != nil {
-		return err
-	}
-	if err := copyTree(tmp, cwd); err != nil {
+	// Materialize downloads to a temp area first, so a failure never destroys
+	// local content; Replace clears the folder (keeping the dir) before writing.
+	if err := client.Materialize(src, cwd, fetch.Replace, warn); err != nil {
 		return err
 	}
 	if err := meta.Write(cwd, metaFrom(src)); err != nil {
@@ -312,79 +316,28 @@ func resolveToken(flag string) string {
 	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
 		return t
 	}
-	return os.Getenv("GH_TOKEN")
+	if t := os.Getenv("GH_TOKEN"); t != "" {
+		return t
+	}
+	return tokenFromGHCLI()
+}
+
+// tokenFromGHCLI returns the token stored by an authenticated GitHub CLI
+// (`gh auth token`), or "" if gh is absent, not logged in, or slow to respond.
+// Any failure is silent so callers fall back to anonymous access.
+func tokenFromGHCLI() string {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func warn(msg string) {
 	fmt.Fprintln(os.Stderr, "warning: "+msg)
-}
-
-// clearExcept removes every entry in dir except the one named keep.
-func clearExcept(dir, keep string) error {
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	for _, e := range ents {
-		if e.Name() == keep {
-			continue
-		}
-		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// copyTree copies the contents of src into dst, preserving file modes and
-// symlinks where the platform allows.
-func copyTree(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		target := filepath.Join(dst, rel)
-
-		switch {
-		case info.IsDir():
-			return os.MkdirAll(target, 0o755)
-		case info.Mode()&os.ModeSymlink != 0:
-			link, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			_ = os.Remove(target)
-			if err := os.Symlink(link, target); err != nil {
-				return os.WriteFile(target, []byte(link), 0o644)
-			}
-			return nil
-		default:
-			return copyFile(path, target, info.Mode())
-		}
-	})
-}
-
-func copyFile(src, dst string, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
 }

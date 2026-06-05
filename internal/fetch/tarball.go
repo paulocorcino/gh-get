@@ -55,17 +55,9 @@ func (c *Client) downloadViaTarball(src ghurl.Source, destDir string, warn func(
 			continue
 		}
 
-		var inner string
-		if folder == "" {
-			inner = rel
-		} else {
-			if rel != folder && !strings.HasPrefix(rel, folder+"/") {
-				continue
-			}
-			inner = strings.TrimPrefix(strings.TrimPrefix(rel, folder), "/")
-		}
-		if inner == "" {
-			continue // the folder entry itself
+		inner, ok := folderMember(folder, rel)
+		if !ok || inner == "" {
+			continue // outside the folder, or the folder entry itself
 		}
 
 		dest, err := safeJoin(destDir, inner)
