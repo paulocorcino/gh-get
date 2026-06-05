@@ -39,9 +39,10 @@ later via `gh-get update`.
      only the folder) when the folder has **> ~40 files** OR on **HTTP 403**
      (rate limit). Balances minimal download vs. robustness.
 
-4. **Authentication:** reads `GITHUB_TOKEN` / `GH_TOKEN` from env
-   automatically; `--token` flag overrides. Raises rate limit to 5000/h and
-   enables private repos. Fully optional — anonymous by default.
+4. **Authentication:** resolution order `--token` flag → `GITHUB_TOKEN` →
+   `GH_TOKEN` → `gh auth token` (shells out to the GitHub CLI if present and
+   logged in; 3s timeout, failure is silent → anonymous). Raises rate limit to
+   5000/h and enables private repos. Fully optional — anonymous by default.
 
 5. **`update` semantics:** store the resolved commit SHA in `.gh-get-source`.
    On update, compare: if unchanged → print "already up to date", no download.
@@ -53,6 +54,12 @@ later via `gh-get update`.
    **whole repo** (empty folder path). Bare repo URLs resolve the default branch
    via the repos API. When the branch name contains `/` (e.g. `feature/x`),
    disambiguate by querying refs. Fixes the regex bug in the original script.
+
+6a. **Destination `.` (in-place):** when the destination resolves to the current
+   working directory, download is written **into** it (overwriting only colliding
+   paths, never wiping the dir, no `--force` needed). For non-CWD destinations,
+   `--force` still wipes+rewrites, but is **refused** when the target contains the
+   CWD (e.g. `..`) to avoid deleting the directory the user is standing in.
 
 6b. **Ref override (`--ref` / `--branch`):** overrides the ref embedded in the
    URL on download (the URL's ref is still resolved to split the folder path).

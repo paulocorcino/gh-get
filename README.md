@@ -78,10 +78,19 @@ gh-get https://github.com/mattpocock/skills/tree/main/skills/productivity/handof
 # Custom destination, overwrite if it exists
 gh-get https://github.com/mattpocock/skills/tree/main/skills/productivity/handoff ./handoff --force
 
+# Download into the current directory (in place); existing files with the
+# same name are overwritten, everything else is left untouched
+gh-get https://github.com/OWNER/REPO .
+
 # Later, from inside the folder, re-pull the latest content
 cd ./handoff
 gh-get update
 ```
+
+When the destination is `.` (or any path resolving to the current directory),
+gh-get writes the files **in place** instead of creating a subfolder, and never
+deletes the directory. As a safeguard, `--force` refuses to overwrite a
+destination that contains the current working directory (e.g. `..`).
 
 ### Choosing a branch, tag or commit
 
@@ -121,7 +130,10 @@ https://github.com/OWNER/REPO/blob/feature/x/PATH/TO/FOLDER
 ## Authentication
 
 Optional. A token raises the rate limit (60 → 5000 req/h) and enables private
-repos. Resolution order: `--token` flag → `$GITHUB_TOKEN` → `$GH_TOKEN`.
+repos. Resolution order: `--token` flag → `$GITHUB_TOKEN` → `$GH_TOKEN` →
+`gh auth token` (if the GitHub CLI is installed and logged in). The last step
+means that if you already ran `gh auth login`, gh-get picks up that token
+automatically — no env var needed.
 
 ## Build
 
