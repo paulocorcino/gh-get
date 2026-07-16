@@ -1,3 +1,5 @@
 /gh-get
 /gh-get.exe
 /dist/
+# Ralphy run artifacts (scratch, logs, per-run plans)
+.ralphy/
