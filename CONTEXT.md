@@ -20,6 +20,7 @@ later via `gh-get update`.
 |---|---|
 | `gh-get <github-folder-url> [dest] [--force]` | Download the folder pointed by a `tree/`/`blob/` URL |
 | `gh-get update` | Re-pull the folder in the current dir (reads `.gh-get-source`) |
+| `gh-get update -r` / `--recursive` | Update all non-overlapping gh-get folders at or below the current dir |
 | `gh-get --version` / `-h`/`--help` | Version / usage |
 
 ## Consolidated decisions
@@ -48,6 +49,13 @@ later via `gh-get update`.
    On update, compare: if unchanged → print "already up to date", no download.
    If changed → overwrite (same destructive behavior as today). **No merge**;
    the downloaded folder is treated as read-only / "installed" content.
+
+5a. **Recursive update:** `update -r` / `--recursive` scans from the current
+    directory without following directory symlinks, then updates installations
+    sequentially and continues after individual failures. A managed parent that
+    contains another managed folder is skipped so its replace operation cannot
+    erase the child. The command returns non-zero if any scan or update fails.
+    Recursive mode cannot be combined with `--ref` / `--branch`.
 
 6. **URL parsing:** accept `.../tree/...` and `.../blob/...`, plus the repo root
    (`github.com/OWNER/REPO`) and branch root (`.../tree/BRANCH`) to download the

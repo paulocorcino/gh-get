@@ -43,6 +43,7 @@ gh-get https://github.com/mattpocock/skills/tree/main/skills/productivity/handof
 ```sh
 gh-get <github-folder-url> [destination] [--force] [--ref REF] [--token TOKEN]
 gh-get update [--ref REF]
+gh-get update -r | --recursive
 gh-get --install
 gh-get --version | --help
 ```
@@ -85,7 +86,18 @@ gh-get https://github.com/OWNER/REPO .
 # Later, from inside the folder, re-pull the latest content
 cd ./handoff
 gh-get update
+
+# Update every gh-get folder under the current directory
+cd ./skills
+gh-get update -r
 ```
+
+Recursive update scans the current directory and all of its descendants for
+`.gh-get-source` files. It updates every independent installation, continues
+when one fails, and prints a summary. Directory symlinks are not followed. If a
+managed folder contains another managed folder, the parent is skipped so its
+replacement update cannot erase the nested installation. `--recursive` cannot
+be combined with `--ref` or `--branch`.
 
 When the destination is `.` (or any path resolving to the current directory),
 gh-get writes the files **in place** instead of creating a subfolder, and never
@@ -126,6 +138,9 @@ https://github.com/OWNER/REPO/blob/feature/x/PATH/TO/FOLDER
 - **`update`:** stores the commit SHA in `.gh-get-source`; on update it skips the
   download when nothing changed, otherwise overwrites the folder (no merge — the
   folder is treated as installed content).
+- **Recursive update:** `gh-get update -r` finds managed folders at or below the
+  current directory, updates non-overlapping installations, and reports updated,
+  current, skipped, and failed counts.
 
 ## Authentication
 

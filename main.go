@@ -5,9 +5,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,6 +27,7 @@ const usage = `gh-get - download a folder (or a whole repo) from GitHub
 Usage:
   gh-get <github-url> [destination] [--force] [--ref REF] [--token TOKEN]
   gh-get update [--ref REF]
+  gh-get update -r | --recursive
   gh-get --install
   gh-get --version | --help
 
@@ -61,6 +64,8 @@ Options:
   -f, --force        Overwrite the destination if it already exists
       --ref REF      Branch, tag or commit to use; overrides the ref in the URL.
                      With "update", switches the folder to this ref.
+  -r, --recursive    With "update", update every gh-get folder at or below the
+                     current directory (cannot be combined with --ref)
       --token TOKEN  GitHub token (else $GITHUB_TOKEN / $GH_TOKEN; optional)
   -h, --help         Show this help
   -v, --version      Show version
@@ -95,6 +100,7 @@ func run(args []string) error {
 
 	var (
 		force      bool
+		recursive  bool
 		tokenFlag  string
 		refFlag    string
 		positional []string
@@ -104,6 +110,8 @@ func run(args []string) error {
 		switch {
 		case a == "-f" || a == "--force":
 			force = true
+		case a == "-r" || a == "--recursive":
+			recursive = true
 		case a == "--token":
 			if i+1 >= len(args) {
 				return fmt.Errorf("--token requires a value")
@@ -129,13 +137,21 @@ func run(args []string) error {
 		}
 	}
 
-	token := resolveToken(tokenFlag)
-
 	if len(positional) > 0 && positional[0] == "update" {
 		if len(positional) > 1 {
 			return fmt.Errorf("unexpected argument: %s", positional[1])
 		}
+		if recursive && refFlag != "" {
+			return fmt.Errorf("--recursive cannot be combined with --ref or --branch")
+		}
+		token := resolveToken(tokenFlag)
+		if recursive {
+			return runRecursiveUpdate(token)
+		}
 		return runUpdate(token, refFlag)
+	}
+	if recursive {
+		return fmt.Errorf("--recursive is only valid with update")
 	}
 
 	if len(positional) == 0 {
@@ -145,6 +161,7 @@ func run(args []string) error {
 	if len(positional) > 2 {
 		return fmt.Errorf("unexpected argument: %s", positional[2])
 	}
+	token := resolveToken(tokenFlag)
 
 	url := positional[0]
 	dest := ""
@@ -243,20 +260,36 @@ func runUpdate(token, refOverride string) error {
 	if err != nil {
 		return err
 	}
+	client := fetch.New(token)
+	_, err = updateAt(client, cwd, refOverride, true)
+	return err
+}
 
-	m, err := meta.Read(cwd)
+type updateStatus int
+
+const (
+	updateNotManaged updateStatus = iota
+	updateCurrent
+	updateChanged
+)
+
+// updateAt updates one gh-get installation. When verbose is false, callers can
+// present compact aggregate output using the returned status.
+func updateAt(client *fetch.Client, dir, refOverride string, verbose bool) (updateStatus, error) {
+	m, err := meta.Read(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Not a gh-get folder; nothing to do (parity with original).
-			return nil
+			return updateNotManaged, nil
 		}
-		return err
+		return updateNotManaged, err
 	}
 	if m.SourceURL == "" {
-		return nil
+		return updateNotManaged, nil
 	}
-
-	client := fetch.New(token)
+	if m.Owner == "" || m.Repo == "" || m.Branch == "" {
+		return updateNotManaged, fmt.Errorf("invalid %s: owner, repo, and branch are required", meta.FileName)
+	}
 
 	// --ref switches the folder to a different branch/tag; otherwise stay on the
 	// ref recorded in the marker.
@@ -267,35 +300,195 @@ func runUpdate(token, refOverride string) error {
 
 	sha, ok, err := client.CheckRef(m.Owner, m.Repo)(ref)
 	if err != nil {
-		return err
+		return updateNotManaged, err
 	}
 	if !ok {
-		return fmt.Errorf("ref no longer exists: %s", ref)
+		return updateNotManaged, fmt.Errorf("ref no longer exists: %s", ref)
 	}
 	// Short-circuit only when staying on the same ref at the same commit.
 	if ref == m.Branch && sha == m.Commit && m.Commit != "" {
-		fmt.Println("Already up to date.")
-		return nil
+		if verbose {
+			fmt.Println("Already up to date.")
+		}
+		return updateCurrent, nil
 	}
 
 	src := ghurl.Build(m.Owner, m.Repo, ref, m.FolderPath, sha)
 
-	fmt.Println("Updating current folder via gh-get...")
-	fmt.Printf("  Source: %s\n", m.SourceURL)
-	fmt.Printf("  Dest:   %s\n\n", cwd)
+	if verbose {
+		fmt.Println("Updating current folder via gh-get...")
+		fmt.Printf("  Source: %s\n", m.SourceURL)
+		fmt.Printf("  Dest:   %s\n\n", dir)
+	}
 
 	// Materialize downloads to a temp area first, so a failure never destroys
 	// local content; Replace clears the folder (keeping the dir) before writing.
-	if err := client.Materialize(src, cwd, fetch.Replace, warn); err != nil {
-		return err
+	if err := client.Materialize(src, dir, fetch.Replace, warn); err != nil {
+		return updateNotManaged, err
 	}
-	if err := meta.Write(cwd, metaFrom(src)); err != nil {
+	if err := meta.Write(dir, metaFrom(src)); err != nil {
+		return updateNotManaged, err
+	}
+
+	if verbose {
+		fmt.Println("Updated:")
+		fmt.Println("  " + dir)
+	}
+	return updateChanged, nil
+}
+
+type pathError struct {
+	Path string
+	Err  error
+}
+
+type recursiveDiscovery struct {
+	Targets []string
+	Skipped []string
+	Errors  []pathError
+}
+
+// discoverRecursive finds managed folders and excludes any managed parent that
+// contains another installation. WalkDir does not follow directory symlinks.
+func discoverRecursive(root string) recursiveDiscovery {
+	var found []string
+	var scanErrors []pathError
+	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			scanErrors = append(scanErrors, pathError{Path: path, Err: err})
+			if entry != nil && entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Name() == meta.FileName && !entry.IsDir() {
+			found = append(found, filepath.Dir(path))
+		}
+		return nil
+	})
+
+	sort.Slice(found, func(i, j int) bool {
+		di, dj := pathDepth(root, found[i]), pathDepth(root, found[j])
+		if di != dj {
+			return di > dj
+		}
+		return found[i] < found[j]
+	})
+
+	result := recursiveDiscovery{Errors: scanErrors}
+	for _, candidate := range found {
+		parent := false
+		for _, other := range found {
+			if candidate != other && isDescendant(candidate, other) {
+				parent = true
+				break
+			}
+		}
+		if parent {
+			result.Skipped = append(result.Skipped, candidate)
+		} else {
+			result.Targets = append(result.Targets, candidate)
+		}
+	}
+	return result
+}
+
+func pathDepth(root, path string) int {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." {
+		return 0
+	}
+	return strings.Count(filepath.Clean(rel), string(os.PathSeparator)) + 1
+}
+
+func isDescendant(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	return err == nil && rel != "." && rel != ".." &&
+		!strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+type recursiveSummary struct {
+	Updated int
+	Current int
+	Skipped int
+	Failed  int
+}
+
+type updateAttempt struct {
+	Path   string
+	Status updateStatus
+	Err    error
+}
+
+func updateAll(paths []string, updater func(string) (updateStatus, error)) []updateAttempt {
+	attempts := make([]updateAttempt, 0, len(paths))
+	for _, path := range paths {
+		status, err := updater(path)
+		attempts = append(attempts, updateAttempt{Path: path, Status: status, Err: err})
+	}
+	return attempts
+}
+
+func runRecursiveUpdate(token string) error {
+	root, err := os.Getwd()
+	if err != nil {
 		return err
 	}
 
-	fmt.Println("Updated:")
-	fmt.Println("  " + cwd)
+	fmt.Println("Searching for gh-get installations under:")
+	fmt.Println("  " + root)
+	discovery := discoverRecursive(root)
+	if len(discovery.Targets) == 0 && len(discovery.Skipped) == 0 && len(discovery.Errors) == 0 {
+		fmt.Println("No gh-get installations found.")
+		return nil
+	}
+
+	summary := recursiveSummary{Skipped: len(discovery.Skipped), Failed: len(discovery.Errors)}
+	for _, path := range discovery.Skipped {
+		fmt.Printf("[skipped] %s (contains a nested gh-get installation)\n", displayPath(root, path))
+	}
+	for _, scanErr := range discovery.Errors {
+		fmt.Printf("[failed]  %s: %v\n", displayPath(root, scanErr.Path), scanErr.Err)
+	}
+
+	client := fetch.New(token)
+	attempts := updateAll(discovery.Targets, func(path string) (updateStatus, error) {
+		return updateAt(client, path, "", false)
+	})
+	for _, attempt := range attempts {
+		switch {
+		case attempt.Err != nil:
+			summary.Failed++
+			fmt.Printf("[failed]  %s: %v\n", displayPath(root, attempt.Path), attempt.Err)
+		case attempt.Status == updateChanged:
+			summary.Updated++
+			fmt.Printf("[updated] %s\n", displayPath(root, attempt.Path))
+		case attempt.Status == updateCurrent:
+			summary.Current++
+			fmt.Printf("[current] %s\n", displayPath(root, attempt.Path))
+		default:
+			summary.Failed++
+			fmt.Printf("[failed]  %s: invalid or missing %s\n", displayPath(root, attempt.Path), meta.FileName)
+		}
+	}
+
+	fmt.Println("\nSummary:")
+	fmt.Printf("  Updated:            %d\n", summary.Updated)
+	fmt.Printf("  Already up to date: %d\n", summary.Current)
+	fmt.Printf("  Skipped:            %d\n", summary.Skipped)
+	fmt.Printf("  Failed:             %d\n", summary.Failed)
+	if summary.Failed > 0 {
+		return fmt.Errorf("%d recursive update operation(s) failed", summary.Failed)
+	}
 	return nil
+}
+
+func displayPath(root, path string) string {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." {
+		return "."
+	}
+	return rel
 }
 
 func metaFrom(src ghurl.Source) meta.Meta {
