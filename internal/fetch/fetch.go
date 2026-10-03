@@ -50,9 +50,13 @@ func (c *Client) Materialize(src ghurl.Source, destDir string, mode WriteMode, w
 // repo tarball when the folder is large, the tree listing is truncated, or the
 // API rate-limits per-file fetches. warn (optional) receives non-fatal notices.
 func (c *Client) download(src ghurl.Source, destDir string, warn func(string)) error {
+	if c.isLimited() {
+		// The tree listing would only be refused again; codeload needs no API.
+		return c.downloadViaTarball(src, destDir, warn)
+	}
 	entries, ok, err := c.listFolder(src)
 	switch {
-	case isRateLimit(err):
+	case c.noteLimit(err):
 		return c.downloadViaTarball(src, destDir, warn)
 	case err != nil:
 		return err
@@ -74,6 +78,7 @@ func (c *Client) download(src ghurl.Source, destDir string, warn func(string)) e
 			if warn != nil {
 				warn("rate limited during per-file download, retrying via tarball")
 			}
+			c.noteLimit(err)
 			return c.downloadViaTarball(src, destDir, warn)
 		}
 		return err

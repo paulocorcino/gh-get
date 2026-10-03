@@ -24,15 +24,8 @@ type treeEntry struct {
 // using the Trees API at the resolved commit. ok is false when the listing was
 // truncated (huge repo), signalling the caller to use the tarball path.
 func (c *Client) listFolder(src ghurl.Source) (entries []treeEntry, ok bool, err error) {
-	u := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1",
-		apiBase, src.Owner, src.Repo, url.PathEscape(src.Commit))
-
-	body, err := c.get(u, "application/vnd.github+json")
+	tr, err := c.tree(src.Owner, src.Repo, src.Commit)
 	if err != nil {
-		return nil, false, err
-	}
-	var tr treeResponse
-	if err := json.Unmarshal(body, &tr); err != nil {
 		return nil, false, err
 	}
 	if tr.Truncated {
@@ -49,6 +42,32 @@ func (c *Client) listFolder(src ghurl.Source) (entries []treeEntry, ok bool, err
 		}
 	}
 	return entries, true, nil
+}
+
+// tree returns the recursive tree at commit, cached so several folders from the
+// same repo and commit cost a single request.
+func (c *Client) tree(owner, repo, commit string) (treeResponse, error) {
+	key := cacheKey(owner, repo, commit)
+	c.mu.Lock()
+	tr, hit := c.trees[key]
+	c.mu.Unlock()
+	if hit {
+		return tr, nil
+	}
+
+	u := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1",
+		apiBase, owner, repo, url.PathEscape(commit))
+	body, err := c.get(u, "application/vnd.github+json")
+	if err != nil {
+		return treeResponse{}, err
+	}
+	if err := json.Unmarshal(body, &tr); err != nil {
+		return treeResponse{}, err
+	}
+	c.mu.Lock()
+	c.trees[key] = tr
+	c.mu.Unlock()
+	return tr, nil
 }
 
 // downloadViaTrees fetches each blob under the folder from raw.githubusercontent

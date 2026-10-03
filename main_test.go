@@ -129,7 +129,7 @@ func TestUpdateAt_InvalidMarkerFailsBeforeNetwork(t *testing.T) {
 	if err := meta.Write(dir, meta.Meta{SourceURL: "https://github.com/o/r"}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := updateAt(fetch.New("test"), dir, "", false)
+	_, err := updateAt(fetch.New("test", nil), dir, "", false)
 	if err == nil || !strings.Contains(err.Error(), "invalid "+meta.FileName) {
 		t.Fatalf("err = %v", err)
 	}

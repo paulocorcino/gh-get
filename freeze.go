@@ -88,19 +88,30 @@ func mergeFreeze(lines []string, entries []manifest.Entry, baseDir string, insts
 // how the ref splits from the path, so both plausible defaults are accepted:
 // the last URL segment and the repo name.
 func entryTargets(e manifest.Entry, baseDir, dir string) bool {
+	for _, d := range entryCandidates(e, baseDir) {
+		if eqPath(d, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// entryCandidates lists the absolute destinations entry e may put its folder
+// at, judged offline: the explicit destination, else the last URL segment and
+// the repo name.
+func entryCandidates(e manifest.Entry, baseDir string) []string {
 	if e.Dest != "" {
 		d := filepath.Clean(e.Dest)
 		if !filepath.IsAbs(d) {
 			d = filepath.Join(baseDir, d)
 		}
-		return eqPath(d, dir)
+		return []string{d}
 	}
 	segs := urlSegments(e.URL)
 	if len(segs) < 2 {
-		return false
+		return nil
 	}
-	return eqPath(filepath.Join(baseDir, segs[len(segs)-1]), dir) ||
-		eqPath(filepath.Join(baseDir, segs[1]), dir)
+	return []string{filepath.Join(baseDir, segs[len(segs)-1]), filepath.Join(baseDir, segs[1])}
 }
 
 // entryDescribes reports whether a list URL already points at the installed
