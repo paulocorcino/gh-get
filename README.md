@@ -42,8 +42,11 @@ gh-get https://github.com/mattpocock/skills/tree/main/skills/productivity/handof
 
 ```sh
 gh-get <github-folder-url> [destination] [--force] [--ref REF] [--token TOKEN]
+gh-get -F FILE [--force]
 gh-get update [--ref REF]
 gh-get update -r | --recursive
+gh-get update -F FILE
+gh-get freeze [-F FILE]
 gh-get --install
 gh-get --version | --help
 ```
@@ -104,6 +107,59 @@ gh-get writes the files **in place** instead of creating a subfolder, and never
 deletes the directory. As a safeguard, `--force` refuses to overwrite a
 destination that contains the current working directory (e.g. `..`).
 
+### Downloading from a list file
+
+Like pip's `requirements.txt`, a list file (by convention `gh-get.txt`) declares
+several folders at once — one GitHub URL per line, optionally followed by a
+destination. Relative destinations resolve against the list file's directory;
+`#` starts a comment.
+
+```text
+# gh-get.txt
+https://github.com/mattpocock/skills/tree/main/skills/productivity/handoff
+https://github.com/mattpocock/skills/tree/main/skills/engineering/tdd  skills/tdd
+https://github.com/OWNER/REPO/tree/v2.0.0/docs  vendor/docs   # pinned to a tag
+```
+
+```sh
+# Download every entry that is not there yet (existing ones are left alone)
+gh-get -F gh-get.txt
+
+# Update every entry (also downloads entries added to the list since)
+gh-get update -F gh-get.txt
+
+# Same, using ./gh-get.txt automatically
+gh-get update
+```
+
+Plain `gh-get update` uses `./gh-get.txt` only when the current directory is not
+itself a gh-get folder. The list is the source of truth for the ref: changing
+`tree/main` to `tree/v2.0.0` and running `update` switches that folder. A
+destination that already holds something else (a non-gh-get folder or a
+different source) fails unless `--force` is given; destinations that overlap
+another entry, or contain the list file or the current directory, are refused.
+Entries are processed one by one; failures are reported and the command exits
+non-zero at the end. `--file` cannot be combined with `--ref` or `--recursive`.
+
+#### Generating the list from what is already downloaded
+
+Like `pip freeze`, `gh-get freeze` scans the current directory and its
+subfolders for gh-get folders and creates `gh-get.txt` (or the file given with
+`-F`), or updates it if it already exists:
+
+```sh
+cd ~/my-skills
+gh-get freeze            # writes/updates ./gh-get.txt
+```
+
+- Folders not yet listed are appended (`[added]`); the destination is omitted
+  when it matches the default name.
+- A listed folder whose installed ref differs (e.g. after `update --ref`) has its
+  URL rewritten in place (`[changed]`), keeping its destination and comment.
+- Comments, order and entries for folders that are not downloaded are kept.
+- A gh-get folder that contains another gh-get folder is skipped, as in
+  `update -r`.
+
 ### Choosing a branch, tag or commit
 
 The ref normally comes from the URL (`tree/<ref>/...`). Use `--ref` (alias
@@ -141,6 +197,8 @@ https://github.com/OWNER/REPO/blob/feature/x/PATH/TO/FOLDER
 - **Recursive update:** `gh-get update -r` finds managed folders at or below the
   current directory, updates non-overlapping installations, and reports updated,
   current, skipped, and failed counts.
+- **List file:** `gh-get -F gh-get.txt` / `gh-get update` sync every entry of a
+  requirements.txt-style list; each folder still gets its own `.gh-get-source`.
 
 ## Authentication
 

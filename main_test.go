@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/paulocorcino/gh-get/internal/fetch"
+	"github.com/paulocorcino/gh-get/internal/ghurl"
 	"github.com/paulocorcino/gh-get/internal/meta"
 )
 
@@ -131,5 +132,82 @@ func TestUpdateAt_InvalidMarkerFailsBeforeNetwork(t *testing.T) {
 	_, err := updateAt(fetch.New("test"), dir, "", false)
 	if err == nil || !strings.Contains(err.Error(), "invalid "+meta.FileName) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPlanListEntry(t *testing.T) {
+	src := ghurl.Build("o", "r", "main", "skills/a", "sha2")
+	same := meta.Meta{SourceURL: "x", Owner: "O", Repo: "r", Branch: "main", FolderPath: "skills/a", Commit: "sha1"}
+	other := meta.Meta{SourceURL: "x", Owner: "o", Repo: "r", Branch: "main", FolderPath: "skills/b", Commit: "sha1"}
+	upToDate := same
+	upToDate.Commit = "sha2"
+	otherRef := upToDate
+	otherRef.Branch = "dev"
+
+	cases := []struct {
+		name             string
+		st               destState
+		refresh, force   bool
+		want             listAction
+		wantErrSubstring string
+	}{
+		{name: "absent installs", st: destState{}, want: listInstall},
+		{name: "absent installs on update", st: destState{}, refresh: true, want: listInstall},
+		{name: "download leaves same source alone", st: destState{Exists: true, Managed: true, Meta: same}, want: listCurrent},
+		{name: "update refreshes new commit", st: destState{Exists: true, Managed: true, Meta: same}, refresh: true, want: listUpdate},
+		{name: "update skips same commit", st: destState{Exists: true, Managed: true, Meta: upToDate}, refresh: true, want: listCurrent},
+		{name: "update switches ref", st: destState{Exists: true, Managed: true, Meta: otherRef}, refresh: true, want: listUpdate},
+		{name: "other source refused", st: destState{Exists: true, Managed: true, Meta: other}, refresh: true, wantErrSubstring: "different gh-get download"},
+		{name: "other source forced", st: destState{Exists: true, Managed: true, Meta: other}, force: true, want: listInstall},
+		{name: "unmanaged refused", st: destState{Exists: true}, wantErrSubstring: "not downloaded by gh-get"},
+		{name: "unmanaged forced", st: destState{Exists: true}, force: true, want: listInstall},
+	}
+	for _, c := range cases {
+		got, err := planListEntry(c.st, src, c.refresh, c.force)
+		if c.wantErrSubstring != "" {
+			if err == nil || !strings.Contains(err.Error(), c.wantErrSubstring) {
+				t.Errorf("%s: err = %v", c.name, err)
+			}
+			continue
+		}
+		if err != nil || got != c.want {
+			t.Errorf("%s: got %v, %v; want %v", c.name, got, err, c.want)
+		}
+	}
+}
+
+func TestRun_FileRejectsIncompatibleArgs(t *testing.T) {
+	for _, args := range [][]string{
+		{"-F", "gh-get.txt", "https://github.com/o/r"},
+		{"--file", "gh-get.txt", "--ref", "main"},
+		{"update", "--file=gh-get.txt", "-r"},
+	} {
+		if err := run(args); err == nil {
+			t.Errorf("run(%q) succeeded, want error", args)
+		}
+	}
+}
+
+func TestRun_EmptyListFileSucceeds(t *testing.T) {
+	list := filepath.Join(t.TempDir(), "gh-get.txt")
+	if err := os.WriteFile(list, []byte("# nothing yet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"-F", list, "--token", "test"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDestState_ReadsMarker(t *testing.T) {
+	root := t.TempDir()
+	if st, err := readDestState(filepath.Join(root, "missing")); err != nil || st.Exists {
+		t.Fatalf("missing: %#v, %v", st, err)
+	}
+	if st, err := readDestState(root); err != nil || !st.Exists || st.Managed {
+		t.Fatalf("unmanaged: %#v, %v", st, err)
+	}
+	putMarker(t, root)
+	if st, err := readDestState(root); err != nil || !st.Managed {
+		t.Fatalf("managed: %#v, %v", st, err)
 	}
 }

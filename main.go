@@ -16,6 +16,7 @@ import (
 	destpolicy "github.com/paulocorcino/gh-get/internal/dest"
 	"github.com/paulocorcino/gh-get/internal/fetch"
 	"github.com/paulocorcino/gh-get/internal/ghurl"
+	"github.com/paulocorcino/gh-get/internal/manifest"
 	"github.com/paulocorcino/gh-get/internal/meta"
 )
 
@@ -26,8 +27,11 @@ const usage = `gh-get - download a folder (or a whole repo) from GitHub
 
 Usage:
   gh-get <github-url> [destination] [--force] [--ref REF] [--token TOKEN]
+  gh-get -F FILE [--force]
   gh-get update [--ref REF]
   gh-get update -r | --recursive
+  gh-get update -F FILE
+  gh-get freeze [-F FILE]
   gh-get --install
   gh-get --version | --help
 
@@ -35,6 +39,14 @@ Description:
   Downloads a folder from a GitHub repo (no git required), or the whole repo
   when the URL points at its root. A hidden .gh-get-source file records the
   origin so you can later run "gh-get update" from inside the folder to re-pull.
+
+  A list file (like pip's requirements.txt) downloads many folders at once:
+  one GitHub URL per line, optionally followed by a destination (relative to
+  the list file); "#" starts a comment. "gh-get -F FILE" downloads the missing
+  entries, "gh-get update -F FILE" also updates the existing ones. Running
+  "gh-get update" in a directory with a gh-get.txt (and no .gh-get-source)
+  uses that file automatically. "gh-get freeze" scans the current directory
+  for downloaded folders and creates or updates gh-get.txt to list them.
 
 URL formats:
   https://github.com/OWNER/REPO                       (whole repo, default branch)
@@ -58,10 +70,19 @@ Examples:
   # Re-pull the latest content from inside a downloaded folder
   cd ./guide && gh-get update
 
+  # Download / update everything listed in gh-get.txt
+  gh-get -F gh-get.txt
+  gh-get update
+
+  # Record every folder already downloaded under the current dir in gh-get.txt
+  gh-get freeze
+
 Options:
       --install      Copy gh-get into a per-user bin dir on your PATH
                      (no admin required) so it can be run from anywhere
   -f, --force        Overwrite the destination if it already exists
+  -F, --file FILE    Download (or, with "update", update) every entry of a
+                     list file such as gh-get.txt
       --ref REF      Branch, tag or commit to use; overrides the ref in the URL.
                      With "update", switches the folder to this ref.
   -r, --recursive    With "update", update every gh-get folder at or below the
@@ -103,6 +124,7 @@ func run(args []string) error {
 		recursive  bool
 		tokenFlag  string
 		refFlag    string
+		listFile   string
 		positional []string
 	)
 	for i := 0; i < len(args); i++ {
@@ -126,6 +148,14 @@ func run(args []string) error {
 			}
 			i++
 			refFlag = args[i]
+		case a == "-F" || a == "--file":
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s requires a value", a)
+			}
+			i++
+			listFile = args[i]
+		case strings.HasPrefix(a, "--file="):
+			listFile = strings.TrimPrefix(a, "--file=")
 		case strings.HasPrefix(a, "--ref="):
 			refFlag = strings.TrimPrefix(a, "--ref=")
 		case strings.HasPrefix(a, "--branch="):
@@ -137,6 +167,18 @@ func run(args []string) error {
 		}
 	}
 
+	if len(positional) > 0 && positional[0] == "freeze" {
+		if len(positional) > 1 {
+			return fmt.Errorf("unexpected argument: %s", positional[1])
+		}
+		if force || recursive || refFlag != "" {
+			return fmt.Errorf("freeze only accepts --file")
+		}
+		if listFile == "" {
+			listFile = manifest.DefaultFile
+		}
+		return runFreeze(listFile)
+	}
 	if len(positional) > 0 && positional[0] == "update" {
 		if len(positional) > 1 {
 			return fmt.Errorf("unexpected argument: %s", positional[1])
@@ -144,7 +186,13 @@ func run(args []string) error {
 		if recursive && refFlag != "" {
 			return fmt.Errorf("--recursive cannot be combined with --ref or --branch")
 		}
+		if listFile != "" && (recursive || refFlag != "") {
+			return fmt.Errorf("--file cannot be combined with --recursive, --ref or --branch")
+		}
 		token := resolveToken(tokenFlag)
+		if listFile != "" {
+			return runList(listFile, token, true, force)
+		}
 		if recursive {
 			return runRecursiveUpdate(token)
 		}
@@ -152,6 +200,15 @@ func run(args []string) error {
 	}
 	if recursive {
 		return fmt.Errorf("--recursive is only valid with update")
+	}
+	if listFile != "" {
+		if len(positional) > 0 {
+			return fmt.Errorf("unexpected argument with --file: %s", positional[0])
+		}
+		if refFlag != "" {
+			return fmt.Errorf("--file cannot be combined with --ref or --branch (put the ref in each URL)")
+		}
+		return runList(listFile, resolveToken(tokenFlag), false, force)
 	}
 
 	if len(positional) == 0 {
@@ -259,6 +316,15 @@ func runUpdate(token, refOverride string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
+	}
+	// A plain "update" in a directory that is not itself a gh-get folder but
+	// holds a list file updates the list instead.
+	if refOverride == "" {
+		if _, err := meta.Read(cwd); os.IsNotExist(err) {
+			if _, err := os.Stat(manifest.DefaultFile); err == nil {
+				return runList(manifest.DefaultFile, token, true, false)
+			}
+		}
 	}
 	client := fetch.New(token)
 	_, err = updateAt(client, cwd, refOverride, true)
