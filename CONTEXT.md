@@ -21,6 +21,9 @@ later via `gh-get update`.
 | `gh-get <github-folder-url> [dest] [--force]` | Download the folder pointed by a `tree/`/`blob/` URL |
 | `gh-get update` | Re-pull the folder in the current dir (reads `.gh-get-source`) |
 | `gh-get update -r` / `--recursive` | Update all non-overlapping gh-get folders at or below the current dir |
+| `gh-get -F FILE` / `--file FILE` | Download every entry of a list file not yet present |
+| `gh-get freeze [-F FILE]` | Scan the list file's dir for gh-get folders and create/update the list (default `gh-get.txt`) |
+| `gh-get update -F FILE` | Update (and install missing) entries of a list file; plain `update` uses `./gh-get.txt` when the cwd has no `.gh-get-source` |
 | `gh-get --version` / `-h`/`--help` | Version / usage |
 
 ## Consolidated decisions
@@ -56,6 +59,32 @@ later via `gh-get update`.
     contains another managed folder is skipped so its replace operation cannot
     erase the child. The command returns non-zero if any scan or update fails.
     Recursive mode cannot be combined with `--ref` / `--branch`.
+
+5b. **List file (`gh-get.txt`):** requirements.txt-style, one `URL [DEST]` per
+    line, `#` comments (full-line or whitespace-preceded), DEST may contain
+    spaces and resolves relative to the list file's directory (default: folder
+    basename / repo name). All URLs are validated offline before any download.
+    Download mode (`-F`) installs absent entries and leaves an existing
+    same-source installation alone (`[present]`); update mode also re-pulls it
+    when the entry's ref/commit differs, so the list is the source of truth for
+    the ref. "Same source" = owner/repo/folder path, ref ignored. A destination
+    holding a non-gh-get folder or a different source fails unless `--force`.
+    Destinations overlapping another entry, or containing the list's directory
+    or the cwd, are refused. Sequential, continue-on-failure, non-zero exit if
+    any entry failed. `--file` excludes `--ref` and `--recursive`. Plain
+    `gh-get update` falls back to `./gh-get.txt` only when the cwd is not itself
+    managed. Parsing lives in `internal/manifest`; orchestration in `list.go`.
+
+5c. **`freeze`:** pip-freeze analogue. Scans the list file's directory with the
+    same discovery as `update -r` (nested parents skipped; the list's own dir is
+    never an entry) and merges into the list without network: existing lines,
+    comments, order and not-downloaded entries are preserved. Entries are
+    matched to folders offline by explicit dest, else by either plausible
+    default name (last URL segment or repo). A matched entry whose URL no longer
+    describes the installed source has only its URL rewritten (bare repo URLs
+    stay bare for whole-repo installs). Unlisted folders are appended with the
+    canonical `tree/` URL, with the dest (slash-separated, relative) only when it
+    differs from the default name. The file is written only if something changed.
 
 6. **URL parsing:** accept `.../tree/...` and `.../blob/...`, plus the repo root
    (`github.com/OWNER/REPO`) and branch root (`.../tree/BRANCH`) to download the
