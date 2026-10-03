@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/paulocorcino/gh-get/internal/ghurl"
@@ -14,10 +15,19 @@ import (
 // downloadViaTarball streams the repo tarball at the resolved commit and writes
 // only the entries inside src.Path into destDir. This is a single request, used
 // for large folders or when per-file fetching is rate-limited.
+//
+// Anonymous clients (and any client past the API rate limit) fetch it straight
+// from codeload, which does not count against the API quota. With a token the
+// API endpoint is used while it allows, since only it serves private repos.
 func (c *Client) downloadViaTarball(src ghurl.Source, destDir string, warn func(string)) error {
-	u := fmt.Sprintf("%s/repos/%s/%s/tarball/%s", apiBase, src.Owner, src.Repo, src.Commit)
-
-	resp, err := c.do(u, "")
+	var resp *http.Response
+	var err error
+	if c.token != "" && !c.isLimited() {
+		resp, err = c.do(fmt.Sprintf("%s/repos/%s/%s/tarball/%s", apiBase, src.Owner, src.Repo, src.Commit), "")
+	} else {
+		u := fmt.Sprintf("%s/%s/%s/tar.gz/%s", codeloadBase, src.Owner, src.Repo, url.PathEscape(src.Commit))
+		resp, err = c.send(u, func(http.Header) {})
+	}
 	if err != nil {
 		return err
 	}

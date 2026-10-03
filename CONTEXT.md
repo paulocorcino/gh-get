@@ -42,6 +42,17 @@ later via `gh-get update`.
    - **Fallback to tarball** (`codeload.../tar.gz/{ref}`, 1 request, extract
      only the folder) when the folder has **> ~40 files** OR on **HTTP 403**
      (rate limit). Balances minimal download vs. robustness.
+   - Anonymous tarballs come straight from `codeload.github.com`, which does
+     not count against the API quota; with a token the API tarball endpoint is
+     used (only it serves private repos).
+   - **API-free fallback:** once the API rate-limits a run, the client stops
+     calling it (one warning). Refs, tags and the default branch come from the
+     git smart-HTTP advertisement (`github.com/O/R.git/info/refs?service=
+     git-upload-pack`, what `git ls-remote` reads; no git binary needed) and
+     content from the codeload tarball. A run therefore keeps working past the
+     60/h anonymous limit, at the cost of whole-repo tarballs. Rotating proxies
+     to dodge the limit is deliberately not supported (GitHub ToS); a corporate
+     proxy works via `HTTPS_PROXY`.
 
 4. **Authentication:** resolution order `--token` flag → `GITHUB_TOKEN` →
    `GH_TOKEN` → `gh auth token` (shells out to the GitHub CLI if present and
@@ -71,7 +82,11 @@ later via `gh-get update`.
     holding a non-gh-get folder or a different source fails unless `--force`.
     Destinations overlapping another entry, or containing the list's directory
     or the cwd, are refused. Sequential, continue-on-failure, non-zero exit if
-    any entry failed. `--file` excludes `--ref` and `--recursive`. Plain
+    any entry failed. An entry already installed at its destination is
+    recognized offline from its marker (as `freeze` matches), so `-F` costs no
+    request for it and `update -F` only re-checks the installed ref. The fetch
+    client caches ref lookups and tree listings per run, so entries sharing a
+    repo reuse them. `--file` excludes `--ref` and `--recursive`. Plain
     `gh-get update` falls back to `./gh-get.txt` only when the cwd is not itself
     managed. Parsing lives in `internal/manifest`; orchestration in `list.go`.
 
@@ -90,7 +105,11 @@ later via `gh-get update`.
    (`github.com/OWNER/REPO`) and branch root (`.../tree/BRANCH`) to download the
    **whole repo** (empty folder path). Bare repo URLs resolve the default branch
    via the repos API. When the branch name contains `/` (e.g. `feature/x`),
-   disambiguate by querying refs. Fixes the regex bug in the original script.
+   disambiguate by querying refs: one `git/matching-refs` listing (heads +
+   tags) of refs sharing the first segment, longest match wins; a per-prefix
+   probe is only the fallback for an incomplete listing. Keeps the request
+   count fixed regardless of URL depth (anonymous limit: 60/h). Fixes the regex
+   bug in the original script.
 
 6a. **Destination `.` (in-place):** when the destination resolves to the current
    working directory, download is written **into** it (overwriting only colliding
@@ -111,6 +130,10 @@ later via `gh-get update`.
    - Never requires Developer Mode / admin.
 
 8. **CLI messages:** English.
+
+8a. **HTTP timeouts:** no whole-request deadline (it would abort large
+    tarballs on slow links). Headers must arrive within 30s and a body that
+    delivers no data for 60s is aborted as stalled.
 
 9. **Versioning:** injected at build via `-ldflags "-X main.version=..."`
    from the git tag. Local dev builds report `dev`.
@@ -161,8 +184,17 @@ winget manifest are deferred to a later milestone.**
   dir — `%LOCALAPPDATA%\Programs\gh-get` on Windows, `~/.local/bin` on Unix — and
   puts it on PATH with no admin/root. Windows edits the user PATH via PowerShell
   `[Environment]::SetEnvironmentVariable(...,'User')` (avoids `setx` truncation);
-  Unix only prints the `export` line (never edits shell rc files). Idempotent via
-  `os.SameFile`. Tests in `install_test.go` cover the pure PATH helpers.
+  Unix appends a marked, duplicate-guarded line to the profile of `$SHELL`
+  (zsh → `$ZDOTDIR/.zshrc`; bash → `~/.bashrc`, `~/.bash_profile` on macOS;
+  fish → `conf.d/gh-get.fish`; else `~/.profile`), skipped when the marker is
+  already there; `--no-modify-path` only prints the line (rustup-style).
+  Idempotent via `os.SameFile`. Tests in `install_test.go` cover the PATH helpers.
+- `--self-update [--force]` (`selfupdate.go`): reads the latest tag from the
+  `releases/latest` redirect (no REST API, no rate limit), downloads the raw
+  `gh-get_<os>_<arch>` asset, verifies it against `checksums.txt`, and swaps it
+  in via a sibling temp file + rename. Windows renames the running exe to
+  `.old` (removed on a later run). Same version and `dev` builds are replaced
+  only with `--force`. Works from the first release that contains it.
 - GitHub discoverability: repo description + topics set; README has badges, an
   AI-agent positioning section, and an SEO keyword footer.
 

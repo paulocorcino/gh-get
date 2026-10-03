@@ -47,7 +47,8 @@ gh-get update [--ref REF]
 gh-get update -r | --recursive
 gh-get update -F FILE
 gh-get freeze [-F FILE]
-gh-get --install
+gh-get --install [--no-modify-path]
+gh-get --self-update [--force]
 gh-get --version | --help
 ```
 
@@ -68,10 +69,27 @@ This copies the binary to a per-user directory and ensures it's on your `PATH`:
 | Platform | Installed to | PATH |
 | --- | --- | --- |
 | Windows | `%LOCALAPPDATA%\Programs\gh-get\` | added to your **user** PATH automatically |
-| Linux   | `~/.local/bin/` | already on PATH on most distros |
-| macOS   | `~/.local/bin/` | added manually if not present (instructions printed) |
+| Linux   | `~/.local/bin/` | added to your shell profile automatically |
+| macOS   | `~/.local/bin/` | added to your shell profile automatically |
+
+On Linux/macOS the line goes into the profile of your shell (`~/.zshrc`,
+`~/.bashrc` — `~/.bash_profile` on macOS —, fish's `conf.d/gh-get.fish`, or
+`~/.profile`), marked so re-running `--install` never duplicates it. Prefer to
+edit it yourself? Use `gh-get --install --no-modify-path` to only print the line.
 
 Open a new terminal afterwards, then run `gh-get --version` from anywhere.
+
+### Updating gh-get itself
+
+```sh
+gh-get --self-update
+```
+
+Downloads the latest release for your platform, verifies it against the
+release's `checksums.txt`, and replaces the running binary — no admin/root
+needed when gh-get was installed with `--install`. It does nothing when you
+already have the latest version (`--force` reinstalls it, and is required to
+replace a local `dev` build).
 
 ### Examples
 

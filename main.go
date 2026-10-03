@@ -32,7 +32,8 @@ Usage:
   gh-get update -r | --recursive
   gh-get update -F FILE
   gh-get freeze [-F FILE]
-  gh-get --install
+  gh-get --install [--no-modify-path]
+  gh-get --self-update [--force]
   gh-get --version | --help
 
 Description:
@@ -78,8 +79,13 @@ Examples:
   gh-get freeze
 
 Options:
-      --install      Copy gh-get into a per-user bin dir on your PATH
-                     (no admin required) so it can be run from anywhere
+      --install      Copy gh-get into a per-user bin dir and put it on your
+                     PATH (no admin required): the user PATH on Windows, your
+                     shell profile on Linux/macOS (--no-modify-path: only print
+                     the line to add)
+      --self-update  Replace this gh-get with the latest GitHub release
+                     (checksum-verified; --force also reinstalls the same
+                     version or replaces a dev build)
   -f, --force        Overwrite the destination if it already exists
   -F, --file FILE    Download (or, with "update", update) every entry of a
                      list file such as gh-get.txt
@@ -93,6 +99,7 @@ Options:
 `
 
 func main() {
+	removeReplacedBinary()
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "Error: "+err.Error())
 		os.Exit(1)
@@ -113,10 +120,23 @@ func run(args []string) error {
 		fmt.Println("gh-get " + version)
 		return nil
 	case "--install":
-		if len(args) > 1 {
-			return fmt.Errorf("--install takes no other arguments")
+		modifyPath := true
+		for _, a := range args[1:] {
+			if a != "--no-modify-path" {
+				return fmt.Errorf("--install only accepts --no-modify-path")
+			}
+			modifyPath = false
 		}
-		return runInstall()
+		return runInstall(modifyPath)
+	case "--self-update":
+		force := false
+		for _, a := range args[1:] {
+			if a != "-f" && a != "--force" {
+				return fmt.Errorf("--self-update only accepts --force")
+			}
+			force = true
+		}
+		return runSelfUpdate(force)
 	}
 
 	var (
@@ -229,7 +249,7 @@ func run(args []string) error {
 }
 
 func runDownload(url, dest string, force bool, token, refOverride string) error {
-	client := fetch.New(token)
+	client := fetch.New(token, warn)
 
 	partial, err := ghurl.Parse(url)
 	if err != nil {
@@ -237,6 +257,7 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 	}
 	src, err := partial.Resolve(
 		client.CheckRef(partial.Owner, partial.Repo),
+		client.ListRefs(partial.Owner, partial.Repo),
 		func() (string, error) { return client.DefaultBranch(partial.Owner, partial.Repo) },
 	)
 	if err != nil {
@@ -326,7 +347,7 @@ func runUpdate(token, refOverride string) error {
 			}
 		}
 	}
-	client := fetch.New(token)
+	client := fetch.New(token, warn)
 	_, err = updateAt(client, cwd, refOverride, true)
 	return err
 }
@@ -517,7 +538,7 @@ func runRecursiveUpdate(token string) error {
 		fmt.Printf("[failed]  %s: %v\n", displayPath(root, scanErr.Path), scanErr.Err)
 	}
 
-	client := fetch.New(token)
+	client := fetch.New(token, warn)
 	attempts := updateAll(discovery.Targets, func(path string) (updateStatus, error) {
 		return updateAt(client, path, "", false)
 	})

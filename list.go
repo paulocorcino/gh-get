@@ -91,7 +91,7 @@ func runList(listPath, token string, refresh, force bool) error {
 		return nil
 	}
 
-	client := fetch.New(token)
+	client := fetch.New(token, warn)
 	var claimed []string
 	var installed, updated, current, failed int
 	for _, e := range entries {
@@ -138,29 +138,37 @@ func runList(listPath, token string, refresh, force bool) error {
 // syncListEntry resolves one entry and brings its destination in line with it.
 // It returns the absolute destination as soon as it is known so the caller can
 // label output and detect overlapping entries.
+//
+// An entry already installed at its destination is recognized offline, so a
+// download run costs no request for it and an update run only re-checks the
+// installed ref's commit.
 func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, claimed []string, refresh, force bool) (string, listAction, error) {
 	partial, err := ghurl.Parse(e.URL)
 	if err != nil {
 		return "", 0, err
 	}
-	src, err := partial.Resolve(
-		client.CheckRef(partial.Owner, partial.Repo),
-		func() (string, error) { return client.DefaultBranch(partial.Owner, partial.Repo) },
-	)
-	if err != nil {
-		return "", 0, err
-	}
 
-	destRel := e.Dest
-	if destRel == "" {
-		destRel = src.Repo
-		if src.Path != "" {
-			destRel = filepath.Base(src.Path)
+	src, dest, known := installedSource(e, baseDir, !refresh)
+	switch {
+	case !known:
+		src, err = partial.Resolve(
+			client.CheckRef(partial.Owner, partial.Repo),
+			client.ListRefs(partial.Owner, partial.Repo),
+			func() (string, error) { return client.DefaultBranch(partial.Owner, partial.Repo) },
+		)
+		if err != nil {
+			return "", 0, err
 		}
-	}
-	dest := filepath.Clean(destRel)
-	if !filepath.IsAbs(dest) {
-		dest = filepath.Join(baseDir, dest)
+		dest = entryDest(e, baseDir, src.Repo, src.Path)
+	case refresh:
+		sha, ok, err := client.CheckRef(src.Owner, src.Repo)(src.Ref)
+		if err != nil {
+			return dest, 0, err
+		}
+		if !ok {
+			return dest, 0, fmt.Errorf("ref no longer exists: %s", src.Ref)
+		}
+		src = ghurl.Build(src.Owner, src.Repo, src.Ref, src.Path, sha)
 	}
 
 	if containsOrEqual(dest, baseDir) {
@@ -191,6 +199,49 @@ func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, 
 		return dest, 0, err
 	}
 	return dest, action, nil
+}
+
+// entryDest is the absolute destination of entry e for a source folder path in
+// repo: the explicit destination, else the folder's basename (repo name for a
+// whole-repo download), relative to baseDir.
+func entryDest(e manifest.Entry, baseDir, repo, folder string) string {
+	destRel := e.Dest
+	if destRel == "" {
+		destRel = repo
+		if folder != "" {
+			destRel = filepath.Base(folder)
+		}
+	}
+	dest := filepath.Clean(destRel)
+	if !filepath.IsAbs(dest) {
+		dest = filepath.Join(baseDir, dest)
+	}
+	return dest
+}
+
+// installedSource recognizes, without network, an entry whose destination
+// already holds the installation its URL describes. It returns that source at
+// the installed commit and its destination. A bare repo URL tracks the default
+// branch, which only the API knows, so it is recognized only with allowBare
+// (download mode, where the ref does not matter).
+func installedSource(e manifest.Entry, baseDir string, allowBare bool) (ghurl.Source, string, bool) {
+	segs := urlSegments(e.URL)
+	if len(segs) < 2 || (len(segs) == 2 && !allowBare) {
+		return ghurl.Source{}, "", false
+	}
+	for _, dest := range entryCandidates(e, baseDir) {
+		st, err := readDestState(dest)
+		if err != nil || !st.Managed || st.Meta.Branch == "" || !entryDescribes(e.URL, st.Meta) {
+			continue
+		}
+		m := st.Meta
+		folder := strings.Trim(m.FolderPath, "/")
+		if !eqPath(dest, entryDest(e, baseDir, m.Repo, folder)) {
+			continue // e.g. a folder named after the repo holding a sub-folder install
+		}
+		return ghurl.Build(m.Owner, m.Repo, m.Branch, folder, m.Commit), dest, true
+	}
+	return ghurl.Source{}, "", false
 }
 
 func readDestState(dest string) (destState, error) {
