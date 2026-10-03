@@ -12,8 +12,8 @@ where it came from, so you can re-pull the latest content later with
 `gh-get update`.
 
 A single, dependency-free, cross-platform Go binary (Windows, Linux, macOS —
-amd64 & arm64). Self-installs onto your `PATH` with `gh-get --install`, no admin
-needed.
+amd64 & arm64). Self-installs onto your `PATH` with `gh-get --install` and
+updates itself with `gh-get --self-update`, no admin needed.
 
 ```sh
 gh-get https://github.com/owner/repo/tree/main/path/to/folder
@@ -37,6 +37,26 @@ from GitHub.
 # Drop a single "handoff" skill folder into your agent's skills directory
 gh-get https://github.com/mattpocock/skills/tree/main/skills/productivity/handoff
 ```
+
+## What's new in v0.2.0
+
+- **Far fewer API calls.** Deep URLs resolve their branch/tag with a fixed
+  number of requests instead of one per path segment, and requests are reused
+  across a run. A list file whose folders are all present now costs **zero**
+  requests; `update` on an up-to-date list costs one per repo/ref.
+- **Keeps working past the rate limit.** When the anonymous API limit
+  (60 requests/hour) is hit, gh-get switches to endpoints that don't count
+  against it and finishes the job (see [Rate limits](#rate-limits)).
+- **`gh-get --self-update`** downloads the latest release, verifies its
+  checksum and replaces itself.
+- **`--install` puts gh-get on your `PATH` on Linux and macOS too**, by adding
+  a line to your shell profile (`--no-modify-path` to opt out).
+- **Large downloads no longer time out** on slow connections: only a transfer
+  that stops receiving data for 60s is aborted.
+
+Upgrading from v0.1.x: download v0.2.0 from the
+[Releases](https://github.com/paulocorcino/gh-get/releases/latest) page and run
+`--install` once; from then on, `gh-get --self-update` keeps it current.
 
 ## Usage
 
@@ -89,7 +109,8 @@ Downloads the latest release for your platform, verifies it against the
 release's `checksums.txt`, and replaces the running binary — no admin/root
 needed when gh-get was installed with `--install`. It does nothing when you
 already have the latest version (`--force` reinstalls it, and is required to
-replace a local `dev` build).
+replace a local `dev` build). It does not use the GitHub API, so it works even
+when you are rate-limited. Available from v0.2.0.
 
 ### Examples
 
@@ -159,6 +180,10 @@ another entry, or contain the list file or the current directory, are refused.
 Entries are processed one by one; failures are reported and the command exits
 non-zero at the end. `--file` cannot be combined with `--ref` or `--recursive`.
 
+Entries already downloaded are recognized locally from their `.gh-get-source`,
+so `gh-get -F` makes no network request for them and `gh-get update` only checks
+whether their ref moved. Several entries from the same repo share lookups.
+
 #### Generating the list from what is already downloaded
 
 Like `pip freeze`, `gh-get freeze` scans the current directory and its
@@ -204,11 +229,15 @@ https://github.com/OWNER/REPO/blob/feature/x/PATH/TO/FOLDER
 
 ## How it works
 
+- **Ref resolution:** a URL like `tree/feature/x/docs` is split into ref
+  (`feature/x`) and folder (`docs`) with a single listing of matching branches
+  and tags, however deep the path is.
 - **Minimal download (default):** lists the folder via the GitHub Trees API and
   fetches each file from `raw.githubusercontent.com` — only that folder's files.
 - **Tarball fallback:** for large folders (> 40 files), truncated trees, or when
   the anonymous rate limit is hit, it downloads the repo tarball in one request
-  and extracts only the target folder.
+  (from `codeload.github.com` when anonymous) and extracts only the target
+  folder.
 - **`update`:** stores the commit SHA in `.gh-get-source`; on update it skips the
   download when nothing changed, otherwise overwrites the folder (no merge — the
   folder is treated as installed content).
@@ -226,6 +255,25 @@ repos. Resolution order: `--token` flag → `$GITHUB_TOKEN` → `$GH_TOKEN` →
 means that if you already ran `gh auth login`, gh-get picks up that token
 automatically — no env var needed.
 
+A token found this way is always sent, so a stale `$GITHUB_TOKEN` / `$GH_TOKEN`
+makes requests fail (HTTP 401) even for public repos — unset or refresh it.
+
+### Rate limits
+
+Without a token the GitHub API allows 60 requests per hour per IP. gh-get spends
+few of them (typically 2–3 per new folder, none for folders already present),
+and when the limit is reached it prints one warning and continues without the
+API for the rest of the run:
+
+- branches, tags and the default branch are read from the git smart-HTTP
+  endpoint (`github.com/OWNER/REPO.git/info/refs`, what `git ls-remote` uses —
+  no git needed);
+- content comes from the repo tarball on `codeload.github.com`.
+
+Neither counts against the API limit. The trade-off is that the whole repo
+tarball is downloaded instead of just the folder's files. Behind a corporate
+proxy, set `HTTPS_PROXY` as usual.
+
 ## Build
 
 ```sh
@@ -236,10 +284,12 @@ go build -ldflags "-X main.version=v1.0.0" -o gh-get .
 
 ## Status
 
-v0.1.0: full CLI with unit tests, self-install, and a CI cross-compile release
-workflow publishing binaries for all six platform/arch targets. Deferred: winget
-(portable) manifest and a Homebrew tap. See `CONTEXT.md` for the full design
-decisions.
+v0.2.0: full CLI with unit tests, list files and `freeze`, recursive update,
+self-install with automatic `PATH` on every OS, self-update, a rate-limit-proof
+fallback, and a CI cross-compile release workflow publishing binaries for all
+six platform/arch targets. Deferred: winget (portable) manifest and a Homebrew
+tap. See `CONTEXT.md` for the full design decisions and the
+[releases](https://github.com/paulocorcino/gh-get/releases) for the changelog.
 
 ## License
 
