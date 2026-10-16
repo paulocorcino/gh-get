@@ -15,34 +15,53 @@ const (
 	// place. Used for in-place downloads into the current directory.
 	Merge WriteMode = iota
 	// Replace clears the destination's contents (never the directory itself)
-	// before writing. Used for fresh/--force downloads and for update.
+	// before writing. Used for fresh/--force downloads.
 	Replace
+	// Sync removes only the files a previous download wrote (the prev list
+	// passed to Materialize) that the new tree no longer has, then merges.
+	// Used for update, so unrelated content sharing the folder survives. A nil
+	// prev (legacy marker without a file list) degrades to Merge.
+	Sync
 )
 
 // Materialize downloads the folder referenced by src into a temporary area and
 // only then publishes it into destDir according to mode. Because the destination
 // is touched only after a fully successful download, any failure leaves destDir
-// untouched. warn (optional) receives non-fatal notices.
-func (c *Client) Materialize(src ghurl.Source, destDir string, mode WriteMode, warn func(string)) error {
+// untouched. prev is only used by Sync. It returns the slash-separated paths of
+// every file written, for recording in the marker. warn (optional) receives
+// non-fatal notices.
+func (c *Client) Materialize(src ghurl.Source, destDir string, mode WriteMode, prev []string, warn func(string)) ([]string, error) {
 	tmp, err := os.MkdirTemp("", "gh-get-*")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer os.RemoveAll(tmp)
 
 	if err := c.download(src, tmp, warn); err != nil {
-		return err
+		return nil, err
+	}
+	files, err := listFiles(tmp)
+	if err != nil {
+		return nil, err
 	}
 
-	if mode == Replace {
+	switch mode {
+	case Replace:
 		if err := clearContents(destDir); err != nil && !os.IsNotExist(err) {
-			return err
+			return nil, err
+		}
+	case Sync:
+		if err := pruneStale(destDir, prev, files); err != nil {
+			return nil, err
 		}
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return err
+		return nil, err
 	}
-	return publishTree(tmp, destDir, warn)
+	if err := publishTree(tmp, destDir, warn); err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 // download writes the folder referenced by src into destDir, which must already

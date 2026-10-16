@@ -132,7 +132,7 @@ func TestRateLimitedRunAvoidsAPI(t *testing.T) {
 	}
 
 	dest := t.TempDir()
-	if err := c.Materialize(src, dest, Replace, nil); err != nil {
+	if _, err := c.Materialize(src, dest, Replace, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, filepath.Join(dest, "a.txt")); got != "alpha" {

@@ -58,3 +58,18 @@ func TestRead_IgnoresBlankAndBadLines(t *testing.T) {
 		t.Fatalf("got %+v", m)
 	}
 }
+
+func TestWriteRead_Files(t *testing.T) {
+	dir := t.TempDir()
+	in := Meta{SourceURL: "u", Owner: "o", Repo: "r", Branch: "main", Files: []string{"a.md", "b/c.md"}}
+	if err := Write(dir, in); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Files) != 2 || out.Files[0] != "a.md" || out.Files[1] != "b/c.md" {
+		t.Fatalf("files mismatch: %v", out.Files)
+	}
+}

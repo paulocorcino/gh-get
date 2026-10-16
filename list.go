@@ -192,10 +192,19 @@ func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, 
 		return dest, action, err
 	}
 	// Materialize stages the download first, so a failure leaves dest intact.
-	if err := client.Materialize(src, dest, fetch.Replace, warn); err != nil {
+	// An existing installation is synced (only its tracked files are removed);
+	// anything else being overwritten was approved via --force.
+	mode := fetch.Replace
+	if st.Managed {
+		mode = fetch.Sync
+	}
+	files, err := client.Materialize(src, dest, mode, st.Meta.Files, warn)
+	if err != nil {
 		return dest, 0, err
 	}
-	if err := meta.Write(dest, metaFrom(src)); err != nil {
+	m := metaFrom(src)
+	m.Files = files
+	if err := meta.Write(dest, m); err != nil {
 		return dest, 0, err
 	}
 	return dest, action, nil

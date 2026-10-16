@@ -321,10 +321,13 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 	fmt.Printf("  Folder:     %s\n", folderLabel)
 	fmt.Printf("  Destination:%s\n\n", " "+destLabel)
 
-	if err := client.Materialize(src, dest, mode, warn); err != nil {
+	files, err := client.Materialize(src, dest, mode, nil, warn)
+	if err != nil {
 		return err
 	}
-	if err := meta.Write(dest, metaFrom(src)); err != nil {
+	m := metaFrom(src)
+	m.Files = files
+	if err := meta.Write(dest, m); err != nil {
 		return err
 	}
 
@@ -409,11 +412,15 @@ func updateAt(client *fetch.Client, dir, refOverride string, verbose bool) (upda
 	}
 
 	// Materialize downloads to a temp area first, so a failure never destroys
-	// local content; Replace clears the folder (keeping the dir) before writing.
-	if err := client.Materialize(src, dir, fetch.Replace, warn); err != nil {
+	// local content; Sync removes only files the previous download wrote, so
+	// unrelated content sharing the folder is kept.
+	files, err := client.Materialize(src, dir, fetch.Sync, m.Files, warn)
+	if err != nil {
 		return updateNotManaged, err
 	}
-	if err := meta.Write(dir, metaFrom(src)); err != nil {
+	nm := metaFrom(src)
+	nm.Files = files
+	if err := meta.Write(dir, nm); err != nil {
 		return updateNotManaged, err
 	}
 

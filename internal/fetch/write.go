@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -98,6 +99,54 @@ func clearContents(dir string) error {
 	for _, e := range ents {
 		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// listFiles returns the slash-separated paths, relative to root, of every
+// non-directory entry under root, sorted.
+func listFiles(root string) ([]string, error) {
+	var out []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		out = append(out, filepath.ToSlash(rel))
+		return nil
+	})
+	sort.Strings(out)
+	return out, err
+}
+
+// pruneStale deletes from dir each file in prev that keep does not list, then
+// removes directories left empty by those deletions (never dir itself). Only
+// tracked files are touched; paths escaping dir are ignored.
+func pruneStale(dir string, prev, keep []string) error {
+	kept := make(map[string]bool, len(keep))
+	for _, k := range keep {
+		kept[k] = true
+	}
+	root := filepath.Clean(dir)
+	for _, p := range prev {
+		if kept[p] {
+			continue
+		}
+		target, err := safeJoin(root, p)
+		if err != nil || target == root {
+			continue
+		}
+		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		for d := filepath.Dir(target); d != root && strings.HasPrefix(d, root); d = filepath.Dir(d) {
+			if os.Remove(d) != nil {
+				break // not empty (or already gone): stop climbing
+			}
 		}
 	}
 	return nil

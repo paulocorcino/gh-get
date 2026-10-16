@@ -61,8 +61,15 @@ later via `gh-get update`.
 
 5. **`update` semantics:** store the resolved commit SHA in `.gh-get-source`.
    On update, compare: if unchanged → print "already up to date", no download.
-   If changed → overwrite (same destructive behavior as today). **No merge**;
-   the downloaded folder is treated as read-only / "installed" content.
+   If changed → sync: `.gh-get-source` also lists (`file=` lines) every file
+   gh-get wrote; update deletes only those tracked files the new tree no longer
+   has (pruning directories left empty), then writes the new tree. Files gh-get
+   did not write are never touched, so a marker in a folder shared with other
+   content (e.g. a project root) does not wipe it. Tracked files themselves are
+   treated as read-only / "installed" content (local edits are overwritten).
+   Legacy markers without a file list update as a merge (nothing deleted) and
+   start tracking from then on. `update -F` syncs existing installations the
+   same way; only `--force` over a non-gh-get destination still wipes it.
 
 5a. **Recursive update:** `update -r` / `--recursive` scans from the current
     directory without following directory symlinks, then updates installations

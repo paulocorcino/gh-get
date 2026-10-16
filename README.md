@@ -239,8 +239,12 @@ https://github.com/OWNER/REPO/blob/feature/x/PATH/TO/FOLDER
   (from `codeload.github.com` when anonymous) and extracts only the target
   folder.
 - **`update`:** stores the commit SHA in `.gh-get-source`; on update it skips the
-  download when nothing changed, otherwise overwrites the folder (no merge — the
-  folder is treated as installed content).
+  download when nothing changed. It also records every file it wrote, so an
+  update removes only those tracked files that disappeared upstream and then
+  writes the new tree — files gh-get did not install (e.g. other projects in a
+  shared root) are never deleted. Tracked files are installed content: local
+  edits to them are overwritten. Folders downloaded by older versions start
+  tracking on their first update (that update deletes nothing).
 - **Recursive update:** `gh-get update -r` finds managed folders at or below the
   current directory, updates non-overlapping installations, and reports updated,
   current, skipped, and failed counts.

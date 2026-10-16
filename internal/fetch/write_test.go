@@ -85,3 +85,30 @@ func TestClearContents_KeepsDirRemovesEntries(t *testing.T) {
 		t.Fatalf("expected empty dir, got %d entries", len(ents))
 	}
 }
+
+func TestPruneStale_RemovesOnlyTrackedStaleFiles(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{"keep.md", "old/gone.md", "mine/notes.txt", "shared/old.md", "shared/user.txt"} {
+		full := filepath.Join(dir, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prev := []string{"keep.md", "old/gone.md", "shared/old.md", "../escape.md"}
+	if err := pruneStale(dir, prev, []string{"keep.md"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"keep.md", "mine/notes.txt", "shared/user.txt"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(p))); err != nil {
+			t.Errorf("%s should survive: %v", p, err)
+		}
+	}
+	for _, p := range []string{"old/gone.md", "old", "shared/old.md"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(p))); !os.IsNotExist(err) {
+			t.Errorf("%s should be removed", p)
+		}
+	}
+}

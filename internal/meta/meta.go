@@ -23,6 +23,10 @@ type Meta struct {
 	FolderPath string
 	Commit     string
 	UpdatedAt  string
+	// Files lists, slash-separated and relative to the folder, every file
+	// gh-get wrote. update removes only these, so foreign content sharing the
+	// folder survives. Nil for markers written before tracking existed.
+	Files []string
 }
 
 // Read loads the marker from dir. It returns os.ErrNotExist (wrapped) when the
@@ -35,11 +39,16 @@ func Read(dir string) (Meta, error) {
 	defer f.Close()
 
 	kv := map[string]string{}
+	var files []string
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
 		eq := strings.IndexByte(line, '=')
 		if eq < 0 {
+			continue
+		}
+		if line[:eq] == "file" {
+			files = append(files, line[eq+1:])
 			continue
 		}
 		kv[line[:eq]] = line[eq+1:]
@@ -56,6 +65,7 @@ func Read(dir string) (Meta, error) {
 		FolderPath: kv["folder_path"],
 		Commit:     kv["commit"],
 		UpdatedAt:  kv["updated_at"],
+		Files:      files,
 	}, nil
 }
 
@@ -66,5 +76,10 @@ func Write(dir string, m Meta) error {
 		m.SourceURL, m.Owner, m.Repo, m.Branch, m.FolderPath, m.Commit,
 		time.Now().Format(time.RFC3339),
 	)
-	return os.WriteFile(filepath.Join(dir, FileName), []byte(body), 0o644)
+	var b strings.Builder
+	b.WriteString(body)
+	for _, f := range m.Files {
+		b.WriteString("file=" + f + "\n")
+	}
+	return os.WriteFile(filepath.Join(dir, FileName), []byte(b.String()), 0o644)
 }
