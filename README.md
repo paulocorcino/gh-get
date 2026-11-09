@@ -19,7 +19,7 @@ updates itself with `gh-get --self-update`, no admin needed.
 gh-get https://github.com/owner/repo/tree/main/path/to/folder
 ```
 
-### Why?
+## Why?
 
 `git clone` pulls the entire history of an entire repository when all you wanted
 was one directory. `gh-get` fetches **just that folder** — minimally, over the
@@ -220,7 +220,7 @@ gh-get update --ref v2.0.0
 URLs may use `tree` or `blob`, branch names containing `/` are resolved
 automatically, and pointing at the repo root downloads the **whole repo**:
 
-```
+```text
 https://github.com/OWNER/REPO                       (whole repo, default branch)
 https://github.com/OWNER/REPO/tree/BRANCH           (whole repo at BRANCH)
 https://github.com/OWNER/REPO/tree/BRANCH/PATH/TO/FOLDER
