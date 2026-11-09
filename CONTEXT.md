@@ -196,7 +196,7 @@ winget manifest are deferred to a later milestone.**
   fish → `conf.d/gh-get.fish`; else `~/.profile`), skipped when the marker is
   already there; `--no-modify-path` only prints the line (rustup-style).
   Idempotent via `os.SameFile`. Tests in `install_test.go` cover the PATH helpers.
-- `--self-update [--force]` (`selfupdate.go`): reads the latest tag from the
+- `--upgrade [--force]` (`selfupdate.go`): reads the latest tag from the
   `releases/latest` redirect (no REST API, no rate limit), downloads the raw
   `gh-get_<os>_<arch>` asset, verifies it against `checksums.txt`, and swaps it
   in via a sibling temp file + rename. Windows renames the running exe to
