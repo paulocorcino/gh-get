@@ -7,7 +7,7 @@ The pin (version and checksums) lives here; a bump is its own commit, re-measure
 
 import hashlib
 import io
-import os
+import pathlib
 import platform
 import sys
 import tarfile
@@ -38,21 +38,20 @@ def main():
     dest = sys.argv[1]
     name = asset()
     url = f"https://github.com/lycheeverse/lychee/releases/download/lychee-{VERSION}/lychee-{name}"
-    with urllib.request.urlopen(url, timeout=60) as r:  # noqa: S310 - fixed https URL
+    with urllib.request.urlopen(url, timeout=60) as r:
         data = r.read()
     got = hashlib.sha256(data).hexdigest()
     if got != ASSETS[name]:
         sys.exit(f"lychee {name}: sha256 {got} does not match the pin {ASSETS[name]}")
     if name.endswith(".zip"):
-        zipfile.ZipFile(io.BytesIO(data)).extractall(dest)
+        zipfile.ZipFile(io.BytesIO(data)).extractall(dest)  # noqa: S202 - zipfile strips absolute and ".." paths; the bytes match the pinned sha256
     else:
         with tarfile.open(fileobj=io.BytesIO(data)) as t:
             t.extractall(dest, filter="data")
-    for root, _, files in os.walk(dest):
-        for f in files:
-            if f in ("lychee", "lychee.exe"):
-                print(os.path.join(root, f))
-                return
+    for found in pathlib.Path(dest).rglob("lychee*"):
+        if found.name in ("lychee", "lychee.exe"):
+            print(found)
+            return
     sys.exit("lychee binary not found in the archive")
 
 

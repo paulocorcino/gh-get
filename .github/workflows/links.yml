@@ -1,0 +1,34 @@
+name: External links
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check links
+        id: lychee
+        run: |
+          bin=$(python3 scripts/fetch-lychee.py "$RUNNER_TEMP/lychee")
+          set +e
+          "$bin" --no-progress --include-fragments --exclude-path docs/plans --exclude-path docs/lint-scripts \
+            --max-retries 3 --format markdown --output "$RUNNER_TEMP/links.md" '**/*.md'
+          echo "rc=$?" >>"$GITHUB_OUTPUT"
+      - name: Open an issue when a link is broken
+        if: steps.lychee.outputs.rc != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: gh issue create --repo "$REPO" --title "Broken external links" --body-file "$RUNNER_TEMP/links.md"

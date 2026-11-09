@@ -1,0 +1,10 @@
+# Lints the repo's own Python scripts (scripts/*.py). docs/lint-scripts/ are copies of the lint-gate skill.
+line-length = 120
+extend-exclude = ["docs/"]
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "PTH", "RUF", "C90", "PL", "FURB", "PERF", "A", "T20"]
+ignore = ["T201"] # the hooks speak by printing JSON
+
+[lint.mccabe]
+max-complexity = 10

@@ -17,6 +17,7 @@ SHELLCHECK_PY_VERSION=0.11.0.1 # PyPI
 YAMLLINT_VERSION=1.38.0        # PyPI
 MARKDOWNLINT_VERSION=0.18.1    # npm markdownlint-cli2
 JSCPD_VERSION=4.0.5            # npm
+RUFF_VERSION=0.17.4            # PyPI
 read -ra GL <<<"${GOLANGCI_LINT:-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}}"
 PY=$(command -v python3 || command -v python)
 BASE=${BASE_REF:-origin/main}
@@ -67,7 +68,7 @@ pytools() {
   "$PY" -m venv "$PYTOOLS" || return 1
   local bin="$PYTOOLS/bin"
   [ -d "$PYTOOLS/Scripts" ] && bin="$PYTOOLS/Scripts"
-  "$bin/pip" install -q "zizmor==${ZIZMOR_VERSION}" "typos==${TYPOS_VERSION}" "shellcheck-py==${SHELLCHECK_PY_VERSION}" "yamllint==${YAMLLINT_VERSION}" || return 1
+  "$bin/pip" install -q "zizmor==${ZIZMOR_VERSION}" "typos==${TYPOS_VERSION}" "shellcheck-py==${SHELLCHECK_PY_VERSION}" "yamllint==${YAMLLINT_VERSION}" "ruff==${RUFF_VERSION}" || return 1
 }
 pybin() {
   local tool=$1
@@ -114,6 +115,11 @@ clones() {
   npx --yes "jscpd@${JSCPD_VERSION}" .
 }
 
+python_scripts() {
+  pybin ruff check scripts/ || return 1
+  pybin ruff format --check scripts/
+}
+
 secrets() {
   go run "github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}" git --no-banner --redact
 }
@@ -144,6 +150,7 @@ step "shell scripts (shellcheck, shfmt)" shell_scripts
 step "spelling (typos)" spelling
 step "docs (yamllint, markdownlint)" docs
 step "links (lychee, offline)" links
+step "python scripts (ruff)" python_scripts
 step "duplicate code (jscpd)" clones
 step "secrets (gitleaks)" secrets
 step "build" go build ./...
