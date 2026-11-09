@@ -63,7 +63,7 @@ func (c *Client) tree(owner, repo, commit string) (treeResponse, error) {
 		return treeResponse{}, err
 	}
 	if err := json.Unmarshal(body, &tr); err != nil {
-		return treeResponse{}, err
+		return treeResponse{}, fmt.Errorf("decoding tree of %s/%s: %w", owner, repo, err)
 	}
 	c.mu.Lock()
 	c.trees[key] = tr

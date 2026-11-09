@@ -73,8 +73,6 @@ linters:
     # debt: 3 sites
     - noctx
     # debt: 2 sites
-    - errorlint
-    # debt: 2 sites
     - nestif
   settings:
     depguard:

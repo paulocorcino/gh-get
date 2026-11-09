@@ -3,6 +3,7 @@ package fetch
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,11 @@ import (
 	"strings"
 
 	"github.com/paulocorcino/gh-get/internal/ghurl"
+)
+
+var (
+	errTarballRequest = errors.New("tarball request failed")
+	errFolderNotFound = errors.New("folder not found in repository")
 )
 
 // downloadViaTarball streams the repo tarball at the resolved commit and writes
@@ -31,19 +37,19 @@ func (c *Client) downloadViaTarball(src ghurl.Source, destDir string, warn func(
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer c.closeBody(resp.Body)
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
 		return rateLimitError{status: resp.StatusCode}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("tarball request failed: HTTP %d", resp.StatusCode)
+		return fmt.Errorf("%w: HTTP %d", errTarballRequest, resp.StatusCode)
 	}
 
 	gz, err := gzip.NewReader(resp.Body)
 	if err != nil {
-		return err
+		return fmt.Errorf("opening tarball: %w", err)
 	}
-	defer gz.Close()
+	defer c.closeBody(gz)
 
 	// GitHub tarballs wrap everything in a top-level "owner-repo-sha/" dir.
 	// We strip that and keep only entries under our folder path (empty folder =>
@@ -53,11 +59,11 @@ func (c *Client) downloadViaTarball(src ghurl.Source, destDir string, warn func(
 	wrote := 0
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("reading tarball: %w", err)
 		}
 
 		rel := stripTopLevel(hdr.Name)
@@ -86,7 +92,7 @@ func (c *Client) downloadViaTarball(src ghurl.Source, destDir string, warn func(
 		case tar.TypeReg:
 			data, err := io.ReadAll(tr)
 			if err != nil {
-				return err
+				return fmt.Errorf("reading tarball entry %s: %w", hdr.Name, err)
 			}
 			exec := hdr.Mode&0o111 != 0
 			if err := writeFile(dest, data, exec); err != nil {
@@ -97,7 +103,7 @@ func (c *Client) downloadViaTarball(src ghurl.Source, destDir string, warn func(
 	}
 
 	if wrote == 0 {
-		return fmt.Errorf("folder not found in repository: %s", src.Path)
+		return fmt.Errorf("%w: %s", errFolderNotFound, src.Path)
 	}
 	return nil
 }

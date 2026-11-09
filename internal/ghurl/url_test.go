@@ -80,7 +80,10 @@ func noDefault(t *testing.T) func() (string, error) {
 }
 
 func TestResolve_SimpleBranch(t *testing.T) {
-	p, _ := Parse("https://github.com/o/r/tree/main/skills/handoff")
+	p, err := Parse("https://github.com/o/r/tree/main/skills/handoff")
+	if err != nil {
+		t.Fatal(err)
+	}
 	check := func(ref string) (string, bool, error) {
 		if ref == "main" {
 			return "abc123", true, nil
@@ -102,7 +105,10 @@ func TestResolve_SimpleBranch(t *testing.T) {
 
 func TestResolve_SlashedBranchPrefersLongest(t *testing.T) {
 	// Both "feature" and "feature/x" exist; the longest valid ref must win.
-	p, _ := Parse("https://github.com/o/r/tree/feature/x/skills/handoff")
+	p, err := Parse("https://github.com/o/r/tree/feature/x/skills/handoff")
+	if err != nil {
+		t.Fatal(err)
+	}
 	check := func(ref string) (string, bool, error) {
 		switch ref {
 		case "feature", "feature/x":
@@ -120,7 +126,10 @@ func TestResolve_SlashedBranchPrefersLongest(t *testing.T) {
 }
 
 func TestResolve_NoMatch(t *testing.T) {
-	p, _ := Parse("https://github.com/o/r/tree/main/a")
+	p, err := Parse("https://github.com/o/r/tree/main/a")
+	if err != nil {
+		t.Fatal(err)
+	}
 	check := func(string) (string, bool, error) { return "", false, nil }
 	if _, err := p.Resolve(check, nil, noDefault(t)); err == nil {
 		t.Fatal("expected error when no ref matches")
@@ -128,7 +137,10 @@ func TestResolve_NoMatch(t *testing.T) {
 }
 
 func TestResolve_WholeBranch(t *testing.T) {
-	p, _ := Parse("https://github.com/o/r/tree/main")
+	p, err := Parse("https://github.com/o/r/tree/main")
+	if err != nil {
+		t.Fatal(err)
+	}
 	check := func(ref string) (string, bool, error) {
 		if ref == "main" {
 			return "sha", true, nil
@@ -148,7 +160,10 @@ func TestResolve_WholeBranch(t *testing.T) {
 }
 
 func TestResolve_BareRepoUsesDefaultBranch(t *testing.T) {
-	p, _ := Parse("https://github.com/o/r")
+	p, err := Parse("https://github.com/o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
 	check := func(ref string) (string, bool, error) {
 		if ref == "trunk" {
 			return "sha", true, nil
@@ -183,7 +198,10 @@ func lister(refs map[string]string, complete bool, calls *int) RefLister {
 }
 
 func TestResolve_ListedDeepURLNeedsNoProbe(t *testing.T) {
-	p, _ := Parse("https://github.com/o/r/tree/main/skills/engineering/tdd")
+	p, err := Parse("https://github.com/o/r/tree/main/skills/engineering/tdd")
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	src, err := p.Resolve(noCheck(t), lister(map[string]string{"main": "sha-main"}, true, &calls), noDefault(t))
 	if err != nil {
@@ -195,7 +213,10 @@ func TestResolve_ListedDeepURLNeedsNoProbe(t *testing.T) {
 }
 
 func TestResolve_ListedPrefersLongest(t *testing.T) {
-	p, _ := Parse("https://github.com/o/r/tree/feature/x/skills")
+	p, err := Parse("https://github.com/o/r/tree/feature/x/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	refs := map[string]string{"feature": "s1", "feature/x": "s2"}
 	src, err := p.Resolve(noCheck(t), lister(refs, true, &calls), noDefault(t))
@@ -208,7 +229,10 @@ func TestResolve_ListedPrefersLongest(t *testing.T) {
 }
 
 func TestResolve_ListedAnnotatedTagIsChecked(t *testing.T) {
-	p, _ := Parse("https://github.com/o/r/tree/v1.0/docs")
+	p, err := Parse("https://github.com/o/r/tree/v1.0/docs")
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	check := func(ref string) (string, bool, error) {
 		if ref == "v1.0" {
@@ -226,7 +250,10 @@ func TestResolve_ListedAnnotatedTagIsChecked(t *testing.T) {
 }
 
 func TestResolve_ListedFallsBackToCommitSHA(t *testing.T) {
-	p, _ := Parse("https://github.com/o/r/tree/abc1234/docs/guide")
+	p, err := Parse("https://github.com/o/r/tree/abc1234/docs/guide")
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	var checked []string
 	check := func(ref string) (string, bool, error) {
@@ -243,7 +270,10 @@ func TestResolve_ListedFallsBackToCommitSHA(t *testing.T) {
 }
 
 func TestResolve_IncompleteListingProbes(t *testing.T) {
-	p, _ := Parse("https://github.com/o/r/tree/main/a/b")
+	p, err := Parse("https://github.com/o/r/tree/main/a/b")
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	check := func(ref string) (string, bool, error) { return "sha", ref == "main", nil }
 	src, err := p.Resolve(check, lister(nil, false, &calls), noDefault(t))
@@ -256,7 +286,10 @@ func TestResolve_IncompleteListingProbes(t *testing.T) {
 }
 
 func TestResolve_SingleSegmentSkipsListing(t *testing.T) {
-	p, _ := Parse("https://github.com/o/r/tree/main")
+	p, err := Parse("https://github.com/o/r/tree/main")
+	if err != nil {
+		t.Fatal(err)
+	}
 	calls := 0
 	check := func(ref string) (string, bool, error) { return "sha", ref == "main", nil }
 	if _, err := p.Resolve(check, lister(nil, true, &calls), noDefault(t)); err != nil {

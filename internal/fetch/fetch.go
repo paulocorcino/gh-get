@@ -1,6 +1,9 @@
 package fetch
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 
 	"github.com/paulocorcino/gh-get/internal/ghurl"
@@ -33,9 +36,13 @@ const (
 func (c *Client) Materialize(src ghurl.Source, destDir string, mode WriteMode, prev []string, warn func(string)) ([]string, error) {
 	tmp, err := os.MkdirTemp("", "gh-get-*")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating temporary directory: %w", err)
 	}
-	defer os.RemoveAll(tmp)
+	defer func() {
+		if rerr := os.RemoveAll(tmp); rerr != nil && warn != nil {
+			warn(fmt.Sprintf("could not remove temporary directory %s: %v", tmp, rerr))
+		}
+	}()
 
 	if err := c.download(src, tmp, warn); err != nil {
 		return nil, err
@@ -47,7 +54,7 @@ func (c *Client) Materialize(src ghurl.Source, destDir string, mode WriteMode, p
 
 	switch mode {
 	case Replace:
-		if err := clearContents(destDir); err != nil && !os.IsNotExist(err) {
+		if err := clearContents(destDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
 	case Sync:
@@ -56,7 +63,7 @@ func (c *Client) Materialize(src ghurl.Source, destDir string, mode WriteMode, p
 		}
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating destination %s: %w", destDir, err)
 	}
 	if err := publishTree(tmp, destDir, warn); err != nil {
 		return nil, err

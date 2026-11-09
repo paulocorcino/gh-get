@@ -78,10 +78,16 @@ func tarballOf(t *testing.T, files map[string]string) []byte {
 		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
 			t.Fatal(err)
 		}
-		tw.Write([]byte(body))
+		if _, err := tw.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	tw.Close()
-	gz.Close()
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return buf.Bytes()
 }
 
@@ -100,9 +106,9 @@ func TestRateLimitedRunAvoidsAPI(t *testing.T) {
 			apiCalls++
 			w.WriteHeader(http.StatusForbidden)
 		case p == "/git/o/r.git/info/refs":
-			w.Write([]byte(advertisementBody()))
+			write(t, w, []byte(advertisementBody()))
 		case p == "/codeload/o/r/tar.gz/"+shaFeat:
-			w.Write(tarball)
+			write(t, w, tarball)
 		default:
 			t.Errorf("unexpected request %s", p)
 			w.WriteHeader(http.StatusNotFound)

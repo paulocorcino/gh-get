@@ -38,10 +38,12 @@ type Entry struct {
 func Load(path string) ([]Entry, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("opening list file: %w", err)
 	}
-	defer f.Close()
 	entries, err := Parse(f)
+	if cerr := f.Close(); cerr != nil && err == nil {
+		err = cerr
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -68,7 +70,7 @@ func Parse(r io.Reader) ([]Entry, error) {
 		entries = append(entries, Entry{Line: n, URL: url, Dest: dest})
 	}
 	if err := sc.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading list: %w", err)
 	}
 	return entries, nil
 }

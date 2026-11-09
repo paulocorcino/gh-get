@@ -3,9 +3,19 @@
 package ghurl
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+)
+
+var (
+	errNotGitHub     = errors.New("not a github.com URL")
+	errMissingRef    = errors.New("missing ref")
+	errBadShape      = errors.New("unexpected URL shape, want https://github.com/OWNER/REPO[/tree/REF[/FOLDER]]")
+	errNoDefault     = errors.New("not found")
+	errRefUnresolved = errors.New("could not be resolved to a commit")
+	errUnresolved    = errors.New("could not resolve a branch/tag")
 )
 
 // Partial is the result of parsing a GitHub URL before the ref (branch/tag)
@@ -59,7 +69,7 @@ func Parse(raw string) (Partial, error) {
 		return Partial{}, fmt.Errorf("invalid URL: %w", err)
 	}
 	if u.Host != "github.com" {
-		return Partial{}, fmt.Errorf("not a github.com URL: %s", raw)
+		return Partial{}, fmt.Errorf("%w: %s", errNotGitHub, raw)
 	}
 
 	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
@@ -74,15 +84,14 @@ func Parse(raw string) (Partial, error) {
 		}
 		p.rest = segs[3:]
 		if len(p.rest) == 0 {
-			return Partial{}, fmt.Errorf("missing ref after /%s/: %s", segs[2], raw)
+			return Partial{}, fmt.Errorf("%w after /%s/: %s", errMissingRef, segs[2], raw)
 		}
 	}
 	return p, nil
 }
 
 func badShape(raw string) error {
-	return fmt.Errorf(
-		"unexpected URL shape, want https://github.com/OWNER/REPO[/tree/REF[/FOLDER]]: %s", raw)
+	return fmt.Errorf("%w: %s", errBadShape, raw)
 }
 
 // Resolve separates the ref from the (possibly empty) folder path. When the URL
@@ -106,7 +115,7 @@ func (p Partial) Resolve(check RefChecker, list RefLister, defaultBranch func() 
 			return Source{}, err
 		}
 		if !ok {
-			return Source{}, fmt.Errorf("default branch %q not found", ref)
+			return Source{}, fmt.Errorf("default branch %q %w", ref, errNoDefault)
 		}
 		return Build(p.Owner, p.Repo, ref, "", sha), nil
 	}
@@ -154,7 +163,7 @@ func (p Partial) resolveListed(refs map[string]string, check RefChecker) (Source
 				return Source{}, err
 			}
 			if !ok {
-				return Source{}, fmt.Errorf("ref %q could not be resolved to a commit", ref)
+				return Source{}, fmt.Errorf("ref %q %w", ref, errRefUnresolved)
 			}
 			sha = resolved
 		}
@@ -172,7 +181,7 @@ func (p Partial) resolveListed(refs map[string]string, check RefChecker) (Source
 }
 
 func (p Partial) unresolved() error {
-	return fmt.Errorf("could not resolve a branch/tag in %s/%s from URL", p.Owner, p.Repo)
+	return fmt.Errorf("%w in %s/%s from URL", errUnresolved, p.Owner, p.Repo)
 }
 
 // Build assembles a Source directly (used when the ref/commit are already known,

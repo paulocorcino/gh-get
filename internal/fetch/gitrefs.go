@@ -11,6 +11,12 @@ import (
 	"strings"
 )
 
+var (
+	errNotFoundBare = errors.New("not found")
+	errTruncated    = errors.New("truncated pkt-line")
+	errBadPktLength = errors.New("bad pkt-line length")
+)
+
 // advertisement is a repo's ref advertisement from the git smart-HTTP endpoint
 // (what "git ls-remote" reads). It needs no git binary and does not count
 // against the REST API rate limit, so it backs ref resolution once the API
@@ -39,16 +45,16 @@ func (c *Client) advertised(owner, repo string) (advertisement, error) {
 	if err != nil {
 		return advertisement{}, err
 	}
-	defer resp.Body.Close()
+	defer c.closeBody(resp.Body)
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusNotFound:
-		return advertisement{}, fmt.Errorf("repository %s/%s not found (private repos need a token)", owner, repo)
+		return advertisement{}, fmt.Errorf("repository %s/%s %w (private repos need a token)", owner, repo, errNotFoundBare)
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
-		return advertisement{}, fmt.Errorf("unexpected status HTTP %d listing refs of %s/%s", resp.StatusCode, owner, repo)
+		return advertisement{}, fmt.Errorf("%w HTTP %d listing refs of %s/%s", errUnexpectedStatus, resp.StatusCode, owner, repo)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return advertisement{}, err
+		return advertisement{}, fmt.Errorf("reading refs of %s/%s: %w", owner, repo, err)
 	}
 	if adv, err = parseAdvertisement(body); err != nil {
 		return advertisement{}, fmt.Errorf("listing refs of %s/%s: %w", owner, repo, err)
@@ -98,18 +104,18 @@ func parseAdvertisement(data []byte) (advertisement, error) {
 	adv := advertisement{refs: map[string]string{}}
 	for len(data) > 0 {
 		if len(data) < 4 {
-			return advertisement{}, errors.New("truncated pkt-line")
+			return advertisement{}, errTruncated
 		}
 		n, err := strconv.ParseUint(string(data[:4]), 16, 16)
 		if err != nil {
-			return advertisement{}, fmt.Errorf("bad pkt-line length %q", data[:4])
+			return advertisement{}, fmt.Errorf("%w %q", errBadPktLength, data[:4])
 		}
 		if n == 0 { // flush-pkt
 			data = data[4:]
 			continue
 		}
 		if n < 4 || int(n) > len(data) {
-			return advertisement{}, fmt.Errorf("bad pkt-line length %d", n)
+			return advertisement{}, fmt.Errorf("%w %d", errBadPktLength, n)
 		}
 		line := bytes.TrimSuffix(data[4:n], []byte("\n"))
 		data = data[n:]

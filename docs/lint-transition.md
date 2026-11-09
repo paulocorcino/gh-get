@@ -353,3 +353,4 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 - 2026-11-08, lint(stage 3): `embeddedstructfieldcheck` flipped (1 site: blank line after the embedded `io.ReadCloser` in `stallBody`).
 - 2026-11-08, lint(stage 3): `containedctx` flipped (1 site: `stallBody` keeps a `cause func() error` closure instead of a `context.Context`).
 - 2026-11-08, lint(stage 3): `revive` unused-parameter fixed at 2 sites (`_`); `revive` stays listed for argument-limit (Stage 9).
+- 2026-11-08, lint(stage 4): `errorlint` flipped (2 sites: `errors.As` in `isRateLimit`, `errors.Is` for `io.EOF` in the tarball reader); errcheck, wrapcheck and err113 are 0 in `./internal/...` and stay listed for the root package (Stage 5).
