@@ -25,7 +25,7 @@ import (
 // by the REST API, so it does not consume the API rate limit.
 var releasesURL = "https://github.com/paulocorcino/gh-get/releases" //nolint:gochecknoglobals // test seam: tests point it at a local server
 
-// Errors of --self-update; each prints exactly its text.
+// Errors of --upgrade; each prints exactly its text.
 var (
 	ErrDevBuild         = errors.New("this is a development build")
 	ErrChecksumMismatch = errors.New("checksum mismatch")
@@ -63,7 +63,7 @@ func selfUpdate(exe, current, asset string, force bool, stdout io.Writer) error 
 		return fmt.Errorf("finding the latest release: %w", err)
 	}
 	if current == "dev" && !force {
-		return fmt.Errorf("%w; use --self-update --force to replace it with %s", ErrDevBuild, latest)
+		return fmt.Errorf("%w; use --upgrade --force to replace it with %s", ErrDevBuild, latest)
 	}
 	if current == latest && !force {
 		outf(stdout, "gh-get %s is already the latest version.\n", current)

@@ -23,7 +23,7 @@ var version = "dev"
 // Usage errors of the command line; each prints exactly its text.
 var (
 	ErrInstallArgs         = errors.New("--install only accepts --no-modify-path")
-	ErrSelfUpdateArgs      = errors.New("--self-update only accepts --force")
+	ErrUpgradeArgs         = errors.New("--upgrade only accepts --force")
 	ErrTokenValue          = errors.New("--token requires a value")
 	ErrMissingValue        = errors.New("requires a value")
 	ErrUnknownOption       = errors.New("unknown option")
@@ -51,7 +51,7 @@ Usage:
   gh-get update -F FILE|URL
   gh-get freeze [-F FILE]
   gh-get --install [--no-modify-path]
-  gh-get --self-update [--force]
+  gh-get --upgrade [--force]
   gh-get --version | --help
 
 Description:
@@ -105,7 +105,7 @@ Options:
                      PATH (no admin required): the user PATH on Windows, your
                      shell profile on Linux/macOS (--no-modify-path: only print
                      the line to add)
-      --self-update  Replace this gh-get with the latest GitHub release
+      --upgrade      Replace this gh-get with the latest GitHub release
                      (checksum-verified; --force also reinstalls the same
                      version or replaces a dev build)
   -f, --force        Overwrite the destination if it already exists
@@ -150,8 +150,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		return runInstall(modifyPath, stdout)
-	case "--self-update":
-		force, err := parseSelfUpdateArgs(args[1:])
+	case "--upgrade", "--self-update": // --self-update is the old name
+		force, err := parseUpgradeArgs(args[1:])
 		if err != nil {
 			return err
 		}
@@ -229,13 +229,13 @@ func parseInstallArgs(args []string) (bool, error) {
 	return modifyPath, nil
 }
 
-// parseSelfUpdateArgs reads the arguments after --self-update and reports
+// parseUpgradeArgs reads the arguments after --upgrade and reports
 // whether --force was given.
-func parseSelfUpdateArgs(args []string) (bool, error) {
+func parseUpgradeArgs(args []string) (bool, error) {
 	force := false
 	for _, a := range args {
 		if a != "-f" && a != "--force" {
-			return false, ErrSelfUpdateArgs
+			return false, ErrUpgradeArgs
 		}
 		force = true
 	}
@@ -246,7 +246,7 @@ func parseSelfUpdateArgs(args []string) (bool, error) {
 const optToken = "--token"
 
 // commandLine is the parsed command line of every command but --install and
-// --self-update: its flags and its positional arguments.
+// --upgrade: its flags and its positional arguments.
 type commandLine struct {
 	Force      bool
 	Recursive  bool
