@@ -7,3 +7,4 @@
 # staged-plan runtime artifacts
 docs/plans/logs/
 docs/plans/__pycache__/
+__pycache__/
