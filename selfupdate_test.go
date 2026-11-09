@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -24,9 +25,9 @@ func fakeReleases(t *testing.T, asset, body, checksum string) {
 		case "/releases/latest":
 			http.Redirect(w, r, "/releases/tag/v9.9.9", http.StatusFound)
 		case "/releases/download/v9.9.9/checksums.txt":
-			w.Write([]byte("deadbeef  other_file\n" + checksum + "  " + asset + "\n"))
+			writeBody(t, w, "deadbeef  other_file\n"+checksum+"  "+asset+"\n")
 		case "/releases/download/v9.9.9/" + asset:
-			w.Write([]byte(body))
+			writeBody(t, w, body)
 		default:
 			http.NotFound(w, r)
 		}
@@ -51,14 +52,17 @@ func TestSelfUpdate_ReplacesWithVerifiedBinary(t *testing.T) {
 	fakeReleases(t, asset, "new binary", "")
 	exe := fakeExe(t)
 
-	if err := selfUpdate(exe, "v1.0.0", "linux", "amd64", false); err != nil {
+	if err := selfUpdate(exe, "v1.0.0", releaseAsset("linux", "amd64"), false, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(exe); string(got) != "new binary" {
+	if got := mustRead(t, exe); string(got) != "new binary" {
 		t.Fatalf("exe = %q, want the new binary", got)
 	}
 	// Only the swapped-in binary (and, on Windows, the moved-aside one) remain.
-	ents, _ := os.ReadDir(filepath.Dir(exe))
+	ents, err := os.ReadDir(filepath.Dir(exe))
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, e := range ents {
 		if strings.HasPrefix(e.Name(), ".gh-get-new-") {
 			t.Fatalf("staged file left behind: %s", e.Name())
@@ -71,11 +75,11 @@ func TestSelfUpdate_ChecksumMismatchKeepsBinary(t *testing.T) {
 	fakeReleases(t, asset, "tampered", strings.Repeat("0", 64))
 	exe := fakeExe(t)
 
-	err := selfUpdate(exe, "v1.0.0", "linux", "amd64", false)
+	err := selfUpdate(exe, "v1.0.0", releaseAsset("linux", "amd64"), false, new(bytes.Buffer))
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("err = %v, want checksum mismatch", err)
 	}
-	if got, _ := os.ReadFile(exe); string(got) != "old binary" {
+	if got := mustRead(t, exe); string(got) != "old binary" {
 		t.Fatalf("exe = %q, must be untouched", got)
 	}
 }
@@ -85,20 +89,20 @@ func TestSelfUpdate_SkipsCurrentAndDevWithoutForce(t *testing.T) {
 	fakeReleases(t, asset, "new binary", "")
 	exe := fakeExe(t)
 
-	if err := selfUpdate(exe, "v9.9.9", "linux", "amd64", false); err != nil {
+	if err := selfUpdate(exe, "v9.9.9", releaseAsset("linux", "amd64"), false, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
-	if err := selfUpdate(exe, "dev", "linux", "amd64", false); err == nil {
+	if err := selfUpdate(exe, "dev", releaseAsset("linux", "amd64"), false, new(bytes.Buffer)); err == nil {
 		t.Fatal("dev build replaced without --force")
 	}
-	if got, _ := os.ReadFile(exe); string(got) != "old binary" {
+	if got := mustRead(t, exe); string(got) != "old binary" {
 		t.Fatalf("exe = %q, must be untouched", got)
 	}
 
-	if err := selfUpdate(exe, "dev", "linux", "amd64", true); err != nil {
+	if err := selfUpdate(exe, "dev", releaseAsset("linux", "amd64"), true, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(exe); string(got) != "new binary" {
+	if got := mustRead(t, exe); string(got) != "new binary" {
 		t.Fatalf("exe = %q, --force must replace", got)
 	}
 }
@@ -106,7 +110,7 @@ func TestSelfUpdate_SkipsCurrentAndDevWithoutForce(t *testing.T) {
 func TestSelfUpdate_UnknownPlatform(t *testing.T) {
 	fakeReleases(t, releaseAsset("linux", "amd64"), "new binary", "")
 	exe := fakeExe(t)
-	err := selfUpdate(exe, "v1.0.0", "plan9", "mips", false)
+	err := selfUpdate(exe, "v1.0.0", releaseAsset("plan9", "mips"), false, new(bytes.Buffer))
 	if err == nil || !strings.Contains(err.Error(), "no checksum") {
 		t.Fatalf("err = %v, want missing checksum", err)
 	}

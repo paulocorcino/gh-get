@@ -176,9 +176,11 @@ Existing suppressions: `//nolint` 0, `//go:build ignore` 0, `_ =` / `_, _` on a 
 ## Decisions for the human
 
 - **D1 (taken)** `noinlineerr` off as noise: it bans the idiomatic `if err := f(); err != nil`; style only.
-- **D2 (taken)** Terminal output goes through an injected `io.Writer`; only `main` calls `os.Exit`. Holds phase 3.
-- **D3 (open)** Which package owns file writes with their modes, process spawns (`gosec` G204/G306/G304/G703/G122) and waiting in tests (`time.Sleep`). Options: one `internal/` package owns each capability and carries the one `//nolint` per call (recommended); or each call site carries its own reason (more exceptions to count). Holds the capability rows of phase 4.
-- **D4 (open)** Layer boundaries for `depguard` (`strict` list: `$gostd` and the module path; the module has no dependencies). Recommended: turn it on with that list in phase 0. Costs nothing today.
+- **D2 (taken, delivered in lint(stage 6))** Terminal output goes through an injected `io.Writer`; only `main` calls `os.Exit`. Held phase 3.
+- **D3 (taken, delivered in lint(stage 8))** File writes keep going through `internal/fetch/write.go` and `internal/dest`; no new package. Each call fixed where it can be (`filepath.Clean` on read paths, `os.Root` for the walk in `publishTree`, the PowerShell PATH script is a constant that reads the directory from an environment variable); a call whose path comes from the user's own command line by design carries `//nolint:gosec // <rule>: <why>`. Waiting in tests (`time.Sleep`) is not part of this decision.
+- **D7 (taken)** `goconst` is not checked in tests (`exclusions.rules`, `path: _test\.go`): repeated literals in tests are readable expectations, not defects.
+- **D8 (taken)** `gosec` is not checked in tests (same rule): temp-file reads and writes in tests are not a capability the product holds.
+- **D4 (taken)** Layer boundaries for `depguard` (`strict` list: `$gostd` and the module path; the module has no dependencies). Recommended: turn it on with that list in phase 0. Costs nothing today.
 - **D5 (open)** Whether tests run in parallel (`paralleltest`, `tparallel`). Recommended: no for now; keep them off with this decision as the reason until the test suite is shared-state free.
 - **D6 (open)** jscpd for duplicate blocks (needs Node or a pinned binary with checksum): recommended, at 50 tokens / 5 lines, `--fail-on-new-clones 0` plus a count ratchet. Not measured in this run.
 
@@ -341,3 +343,22 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 ## Progress
 
 - 2026-11-08, step 5: every rule with 0 sites is an error; 425 sites listed as debt, 94 `noinlineerr` sites as noise.
+- 2026-11-08, lint(stage 1): `depguard` on with `list-mode: strict`, allow `$gostd` and the module path (D4 taken, 0 sites); `scripts/lint-only.sh <linter> [paths]` runs one linter while it is in the debt list.
+- 2026-11-08, lint(stage 2): `perfsprint` flipped (15 sites: `fmt.Errorf` without verbs to `errors.New`, one `strings.Builder` in a test helper).
+- 2026-11-08, lint(stage 2): `modernize` flipped (4 sites: `range` over int, `FieldsSeq`, `CutPrefix`, `strings.Cut`).
+- 2026-11-08, lint(stage 2): `intrange` flipped (1 site, fixed by the same `range 5` edit as `modernize`).
+- 2026-11-08, lint(stage 2): `usetesting` flipped (2 sites: `t.Chdir` in `TestRun_RecursiveNoInstallationsSucceeds`).
+- 2026-11-08, lint(stage 2): `canonicalheader` flipped (1 site: `X-Github-Api-Version`; `Header.Set` canonicalizes both spellings to the same key, so the request is unchanged).
+- 2026-11-08, lint(stage 3): `nonamedreturns` flipped (5 sites: explicit result types and a local `entries` in `listFolder`/`folderMember`).
+- 2026-11-08, lint(stage 3): `thelper` flipped (2 sites: `t.Helper()` first in `noDefault` and `noCheck`).
+- 2026-11-08, lint(stage 3): `errname` flipped (1 site: `errFolderNotFound` renamed `folderNotFoundError`).
+- 2026-11-08, lint(stage 3): `embeddedstructfieldcheck` flipped (1 site: blank line after the embedded `io.ReadCloser` in `stallBody`).
+- 2026-11-08, lint(stage 3): `containedctx` flipped (1 site: `stallBody` keeps a `cause func() error` closure instead of a `context.Context`).
+- 2026-11-08, lint(stage 3): `revive` unused-parameter fixed at 2 sites (`_`); `revive` stays listed for argument-limit (Stage 9).
+- 2026-11-08, lint(stage 4): `errorlint` flipped (2 sites: `errors.As` in `isRateLimit`, `errors.Is` for `io.EOF` in the tarball reader); errcheck, wrapcheck and err113 are 0 in `./internal/...` and stay listed for the root package (Stage 5).
+- 2026-11-08, lint(stage 5): `errcheck`, `wrapcheck`, `err113` and `gosec:G104` flipped (root package: sentinels `Err*` for usage and entry errors, context wraps at the package boundary, `meta.Read` now wraps and its callers use `errors.Is(err, fs.ErrNotExist)`).
+- 2026-11-08, lint(stage 6): `forbidigo` flipped (79 sites, D2 delivered: `run(args, stdout, stderr)` threads the writers down, every `fmt.Print*` is `fmt.Fprint*` to them with the same text, the fetch client warns through `stderr`; the one `os.Exit` in `main` carries `//nolint:forbidigo`).
+- 2026-11-08, lint(stage 7): `forcetypeassert`, `exhaustive`, `noctx`, `govet`, `gochecknoglobals`, `gocritic:badCall` and `gosec:G602` flipped (exhaustive switches list every case, shadowed `err` renamed, requests carry a context; the 5 endpoint globals stay as test seams with `//nolint:gochecknoglobals`; forcetypeassert, badCall and G602 already had 0 sites).
+- 2026-11-08, lint(stage 8): `goconst` and `gosec` G304, G703, G122, G204, G306 flipped, the empty `gosec.excludes` key removed (D3, D7, D8 taken: tests excluded from both; `goosWindows` names the one GOOS rule; 4 new production `//nolint:gosec` with reasons, for paths the user passes on the command line and for file content written to a `safeJoin`-confined path; G306 had 0 sites).
+- 2026-11-08, lint(stage 9): `nestif` and `revive` flipped, `gocognit` on at the ceiling `min-complexity: 35` (root package at 10: `run` split into argument parsing (`parseCommandLine`, a `commandLine` with one check per command) and `dispatch`; `main.go` carved into `cmd_download.go` and `cmd_update.go`, 417 non-blank lines; `syncListEntry` takes a `listSync` options struct; the rest split along their own steps). The 33 in `internal/fetch/tarball.go` waits for Stage 10.
+- 2026-11-08, lint(stage 10): `gocognit` at `min-complexity: 10` repo-wide, ceiling removed (internal packages split along their own steps: `downloadViaTarball` 33 into request, extract and per-entry write; `parseAdvertisement` 26 into pkt-line framing and line decoding; `publishTree`, `pruneStale`, `Materialize`, `downloadViaTrees`, `Parse`, `Resolve`, `resolveListed` and 3 tests likewise; no `//nolint:gocognit`). `disable` holds only `# noise:` entries: debt list empty.

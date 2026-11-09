@@ -12,8 +12,8 @@ import (
 func TestDo_StalledBodyFails(t *testing.T) {
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("partial"))
-		w.(http.Flusher).Flush()
+		write(t, w, []byte("partial"))
+		flush(t, w)
 		select { // stall until the client gives up
 		case <-r.Context().Done():
 		case <-release:
@@ -28,7 +28,7 @@ func TestDo_StalledBodyFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(t, resp.Body)
 
 	start := time.Now()
 	_, err = io.ReadAll(resp.Body)
@@ -41,10 +41,10 @@ func TestDo_StalledBodyFails(t *testing.T) {
 }
 
 func TestDo_SlowButSteadyBodySucceeds(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		for i := 0; i < 5; i++ {
-			w.Write([]byte("x"))
-			w.(http.Flusher).Flush()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		for range 5 {
+			write(t, w, []byte("x"))
+			flush(t, w)
 			time.Sleep(40 * time.Millisecond)
 		}
 	}))
@@ -56,7 +56,7 @@ func TestDo_SlowButSteadyBodySucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(t, resp.Body)
 	body, err := io.ReadAll(resp.Body)
 	if err != nil || string(body) != "xxxxx" {
 		t.Fatalf("body=%q err=%v", body, err)
@@ -86,5 +86,29 @@ func TestCollectRefs_FiltersPrefixAndAnnotatedTags(t *testing.T) {
 		if got, ok := refs[k]; !ok || got != v {
 			t.Fatalf("refs[%q] = %q (present=%v), want %q", k, got, ok, v)
 		}
+	}
+}
+
+func write(t *testing.T, w io.Writer, b []byte) {
+	t.Helper()
+	if _, err := w.Write(b); err != nil {
+		t.Errorf("write: %v", err)
+	}
+}
+
+func flush(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	f, ok := w.(http.Flusher)
+	if !ok {
+		t.Error("response writer is not a Flusher")
+		return
+	}
+	f.Flush()
+}
+
+func closeBody(t *testing.T, c io.Closer) {
+	t.Helper()
+	if err := c.Close(); err != nil {
+		t.Errorf("close: %v", err)
 	}
 }

@@ -6,8 +6,6 @@ linters:
   disable:
     # noise: one complexity measure: gocognit
     - cyclop
-    # noise: decision first: on with the rules of the layers (D4)
-    - depguard
     # noise: jscpd measures clones across the repo
     - dupl
     # noise: deprecated; forces every field in every literal, against zero values
@@ -50,55 +48,16 @@ linters:
     - wsl
     # noise: blank-line style only
     - wsl_v5
-    # debt: 79 sites
-    - forbidigo
-    # debt: 77 sites
-    - wrapcheck
-    # debt: 56 sites
-    - err113
-    # debt: 56 sites
-    - errcheck
-    # debt: 28 sites
-    - goconst
-    # debt: 24 sites
-    - gocognit
-    # debt: 15 sites
-    - perfsprint
-    # debt: 6 sites
-    - govet
-    # debt: 5 sites
-    - gochecknoglobals
-    # debt: 5 sites
-    - nonamedreturns
-    # debt: 4 sites
-    - modernize
-    # debt: 4 sites
-    - revive
-    # debt: 3 sites
-    - exhaustive
-    # debt: 3 sites
-    - forcetypeassert
-    # debt: 3 sites
-    - noctx
-    # debt: 2 sites
-    - errorlint
-    # debt: 2 sites
-    - nestif
-    # debt: 2 sites
-    - thelper
-    # debt: 2 sites
-    - usetesting
-    # debt: 1 site
-    - canonicalheader
-    # debt: 1 site
-    - containedctx
-    # debt: 1 site
-    - embeddedstructfieldcheck
-    # debt: 1 site
-    - errname
-    # debt: 1 site
-    - intrange
   settings:
+    depguard:
+      rules:
+        main:
+          list-mode: strict
+          files:
+            - $all
+          allow:
+            - $gostd
+            - github.com/paulocorcino/gh-get
     gocognit:
       min-complexity: 10
     nestif:
@@ -122,26 +81,7 @@ linters:
           arguments: [5]
         - name: max-control-nesting
           arguments: [3]
-    gocritic:
-      disabled-checks:
-        # debt: 1 site
-        - badCall
     gosec:
-      excludes:
-        # debt: 17 sites
-        - G104
-        # debt: 15 sites
-        - G304
-        # debt: 5 sites
-        - G703
-        # debt: 3 sites
-        - G602
-        # debt: 1 site
-        - G122
-        # debt: 1 site
-        - G204
-        # debt: 1 site
-        - G306
       config:                     # the widest mode each rule accepts; a tool that writes files with these modes is not a finding
         G301: "0755"
         G302: "0755"
@@ -157,7 +97,7 @@ linters:
   exclusions:
     rules:
       - path: _test\.go
-        linters: [err113, wrapcheck]
+        linters: [err113, wrapcheck, goconst, gosec]
 formatters:
   enable: [gofumpt, goimports]
 issues:

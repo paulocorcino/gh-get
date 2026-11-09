@@ -9,12 +9,12 @@ import "strings"
 // destination root; this keeps the Trees and tarball paths in agreement.
 //
 // folder is expected pre-trimmed of leading/trailing slashes.
-func folderMember(folder, entryPath string) (rel string, ok bool) {
+func folderMember(folder, entryPath string) (string, bool) {
 	if folder == "" {
 		return entryPath, true
 	}
-	if strings.HasPrefix(entryPath, folder+"/") {
-		return strings.TrimPrefix(entryPath, folder+"/"), true
+	if after, found := strings.CutPrefix(entryPath, folder+"/"); found {
+		return after, true
 	}
 	return "", false
 }

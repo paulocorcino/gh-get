@@ -3,11 +3,18 @@ package fetch
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+)
+
+var (
+	errNotFoundBare = errors.New("not found")
+	errTruncated    = errors.New("truncated pkt-line")
+	errBadPktLength = errors.New("bad pkt-line length")
 )
 
 // advertisement is a repo's ref advertisement from the git smart-HTTP endpoint
@@ -38,16 +45,16 @@ func (c *Client) advertised(owner, repo string) (advertisement, error) {
 	if err != nil {
 		return advertisement{}, err
 	}
-	defer resp.Body.Close()
+	defer c.closeBody(resp.Body)
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusNotFound:
-		return advertisement{}, fmt.Errorf("repository %s/%s not found (private repos need a token)", owner, repo)
+		return advertisement{}, fmt.Errorf("repository %s/%s %w (private repos need a token)", owner, repo, errNotFoundBare)
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
-		return advertisement{}, fmt.Errorf("unexpected status HTTP %d listing refs of %s/%s", resp.StatusCode, owner, repo)
+		return advertisement{}, fmt.Errorf("%w HTTP %d listing refs of %s/%s", errUnexpectedStatus, resp.StatusCode, owner, repo)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return advertisement{}, err
+		return advertisement{}, fmt.Errorf("reading refs of %s/%s: %w", owner, repo, err)
 	}
 	if adv, err = parseAdvertisement(body); err != nil {
 		return advertisement{}, fmt.Errorf("listing refs of %s/%s: %w", owner, repo, err)
@@ -96,45 +103,70 @@ func (a advertisement) matching(prefix string) map[string]string {
 func parseAdvertisement(data []byte) (advertisement, error) {
 	adv := advertisement{refs: map[string]string{}}
 	for len(data) > 0 {
-		if len(data) < 4 {
-			return advertisement{}, fmt.Errorf("truncated pkt-line")
+		var line []byte
+		var err error
+		if line, data, err = nextPktLine(data); err != nil {
+			return advertisement{}, err
 		}
-		n, err := strconv.ParseUint(string(data[:4]), 16, 16)
-		if err != nil {
-			return advertisement{}, fmt.Errorf("bad pkt-line length %q", data[:4])
-		}
-		if n == 0 { // flush-pkt
-			data = data[4:]
-			continue
-		}
-		if n < 4 || int(n) > len(data) {
-			return advertisement{}, fmt.Errorf("bad pkt-line length %d", n)
-		}
-		line := bytes.TrimSuffix(data[4:n], []byte("\n"))
-		data = data[n:]
-		if bytes.HasPrefix(line, []byte("# ")) {
-			continue
-		}
-
-		if i := bytes.IndexByte(line, 0); i >= 0 {
-			for _, capa := range strings.Fields(string(line[i+1:])) {
-				if target, ok := strings.CutPrefix(capa, "symref=HEAD:"); ok {
-					adv.head = strings.TrimPrefix(target, "refs/heads/")
-				}
-			}
-			line = line[:i]
-		}
-		sha, name, ok := strings.Cut(string(line), " ")
-		if !ok || !isHexSHA(sha) || name == "capabilities^{}" {
-			continue // empty repo placeholder or malformed line
-		}
-		if base, peeled := strings.CutSuffix(name, "^{}"); peeled {
-			adv.refs[base] = sha // annotated tag: keep the commit it points to
-			continue
-		}
-		adv.refs[name] = sha
+		addAdvertised(&adv, line)
 	}
 	return adv, nil
+}
+
+// nextPktLine splits the first pkt-line off data and returns its payload
+// without the trailing newline, and the data after it. A flush-pkt has an
+// empty payload.
+func nextPktLine(data []byte) ([]byte, []byte, error) {
+	if len(data) < 4 {
+		return nil, nil, errTruncated
+	}
+	n, err := strconv.ParseUint(string(data[:4]), 16, 16)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w %q", errBadPktLength, data[:4])
+	}
+	if n == 0 { // flush-pkt
+		return nil, data[4:], nil
+	}
+	if n < 4 || int(n) > len(data) {
+		return nil, nil, fmt.Errorf("%w %d", errBadPktLength, n)
+	}
+	return bytes.TrimSuffix(data[4:n], []byte("\n")), data[n:], nil
+}
+
+// addAdvertised records one advertisement line in adv: the HEAD symref from
+// the capabilities after a NUL, and the "<sha> <ref>" pair. Service headers,
+// placeholders and malformed lines add nothing.
+func addAdvertised(adv *advertisement, line []byte) {
+	if bytes.HasPrefix(line, []byte("# ")) {
+		return
+	}
+	if i := bytes.IndexByte(line, 0); i >= 0 {
+		if head, ok := headSymref(string(line[i+1:])); ok {
+			adv.head = head
+		}
+		line = line[:i]
+	}
+	sha, name, ok := strings.Cut(string(line), " ")
+	if !ok || !isHexSHA(sha) || name == "capabilities^{}" {
+		return // empty repo placeholder or malformed line
+	}
+	if base, peeled := strings.CutSuffix(name, "^{}"); peeled {
+		adv.refs[base] = sha // annotated tag: keep the commit it points to
+		return
+	}
+	adv.refs[name] = sha
+}
+
+// headSymref returns the default branch named by the last symref=HEAD
+// capability, if any.
+func headSymref(capabilities string) (string, bool) {
+	head, found := "", false
+	for capa := range strings.FieldsSeq(capabilities) {
+		if target, ok := strings.CutPrefix(capa, "symref=HEAD:"); ok {
+			head, found = strings.TrimPrefix(target, "refs/heads/"), true
+		}
+	}
+	return head, found
 }
 
 // isHexSHA reports whether s looks like a (possibly abbreviated) commit SHA.

@@ -1,6 +1,8 @@
 package meta
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,8 +41,8 @@ func TestWriteRead_RoundTrip(t *testing.T) {
 
 func TestRead_Missing(t *testing.T) {
 	_, err := Read(t.TempDir())
-	if !os.IsNotExist(err) {
-		t.Fatalf("expected os.IsNotExist, got %v", err)
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("expected fs.ErrNotExist, got %v", err)
 	}
 }
 

@@ -3,9 +3,19 @@
 package ghurl
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+)
+
+var (
+	errNotGitHub     = errors.New("not a github.com URL")
+	errMissingRef    = errors.New("missing ref")
+	errBadShape      = errors.New("unexpected URL shape, want https://github.com/OWNER/REPO[/tree/REF[/FOLDER]]")
+	errNoDefault     = errors.New("not found")
+	errRefUnresolved = errors.New("could not be resolved to a commit")
+	errUnresolved    = errors.New("could not resolve a branch/tag")
 )
 
 // Partial is the result of parsing a GitHub URL before the ref (branch/tag)
@@ -45,21 +55,13 @@ type RefLister func(prefix string) (refs map[string]string, complete bool, err e
 //	https://github.com/OWNER/REPO/tree/REF/FOLDER/PATH  (a folder)
 //	https://github.com/OWNER/REPO/blob/REF/FOLDER/PATH
 func Parse(raw string) (Partial, error) {
-	raw = strings.TrimSpace(raw)
-	if i := strings.IndexByte(raw, '?'); i >= 0 {
-		raw = raw[:i]
-	}
-	if i := strings.IndexByte(raw, '#'); i >= 0 {
-		raw = raw[:i]
-	}
-	raw = strings.TrimRight(raw, "/")
-
+	raw = trimURL(raw)
 	u, err := url.Parse(raw)
 	if err != nil {
 		return Partial{}, fmt.Errorf("invalid URL: %w", err)
 	}
 	if u.Host != "github.com" {
-		return Partial{}, fmt.Errorf("not a github.com URL: %s", raw)
+		return Partial{}, fmt.Errorf("%w: %s", errNotGitHub, raw)
 	}
 
 	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
@@ -67,22 +69,44 @@ func Parse(raw string) (Partial, error) {
 		return Partial{}, badShape(raw)
 	}
 
-	p := Partial{Owner: segs[0], Repo: segs[1]}
-	if len(segs) > 2 {
-		if segs[2] != "tree" && segs[2] != "blob" {
-			return Partial{}, badShape(raw)
-		}
-		p.rest = segs[3:]
-		if len(p.rest) == 0 {
-			return Partial{}, fmt.Errorf("missing ref after /%s/: %s", segs[2], raw)
-		}
+	rest, err := refSegments(segs[2:], raw)
+	if err != nil {
+		return Partial{}, err
 	}
-	return p, nil
+	return Partial{Owner: segs[0], Repo: segs[1], rest: rest}, nil
+}
+
+// trimURL drops surrounding space, the query string, the fragment and trailing
+// slashes from raw.
+func trimURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if i := strings.IndexByte(raw, '?'); i >= 0 {
+		raw = raw[:i]
+	}
+	if i := strings.IndexByte(raw, '#'); i >= 0 {
+		raw = raw[:i]
+	}
+	return strings.TrimRight(raw, "/")
+}
+
+// refSegments checks the URL path segments after OWNER/REPO: none (a bare repo
+// URL), or tree|blob followed by at least the ref. It returns the segments
+// after tree|blob.
+func refSegments(segs []string, raw string) ([]string, error) {
+	if len(segs) == 0 {
+		return nil, nil
+	}
+	if segs[0] != "tree" && segs[0] != "blob" {
+		return nil, badShape(raw)
+	}
+	if len(segs) == 1 {
+		return nil, fmt.Errorf("%w after /%s/: %s", errMissingRef, segs[0], raw)
+	}
+	return segs[1:], nil
 }
 
 func badShape(raw string) error {
-	return fmt.Errorf(
-		"unexpected URL shape, want https://github.com/OWNER/REPO[/tree/REF[/FOLDER]]: %s", raw)
+	return fmt.Errorf("%w: %s", errBadShape, raw)
 }
 
 // Resolve separates the ref from the (possibly empty) folder path. When the URL
@@ -97,18 +121,7 @@ func badShape(raw string) error {
 // Without list (or with an incomplete listing) each prefix is probed via check.
 func (p Partial) Resolve(check RefChecker, list RefLister, defaultBranch func() (string, error)) (Source, error) {
 	if len(p.rest) == 0 {
-		ref, err := defaultBranch()
-		if err != nil {
-			return Source{}, err
-		}
-		sha, ok, err := check(ref)
-		if err != nil {
-			return Source{}, err
-		}
-		if !ok {
-			return Source{}, fmt.Errorf("default branch %q not found", ref)
-		}
-		return Build(p.Owner, p.Repo, ref, "", sha), nil
+		return p.resolveDefault(check, defaultBranch)
 	}
 
 	if list != nil && len(p.rest) > 1 {
@@ -121,7 +134,29 @@ func (p Partial) Resolve(check RefChecker, list RefLister, defaultBranch func() 
 		}
 	}
 
-	// Longest ref prefix first; path may be empty (whole repo at that ref).
+	return p.resolveProbed(check)
+}
+
+// resolveDefault resolves a bare repo URL to the whole repo at the default
+// branch.
+func (p Partial) resolveDefault(check RefChecker, defaultBranch func() (string, error)) (Source, error) {
+	ref, err := defaultBranch()
+	if err != nil {
+		return Source{}, err
+	}
+	sha, ok, err := check(ref)
+	if err != nil {
+		return Source{}, err
+	}
+	if !ok {
+		return Source{}, fmt.Errorf("default branch %q %w", ref, errNoDefault)
+	}
+	return Build(p.Owner, p.Repo, ref, "", sha), nil
+}
+
+// resolveProbed probes each ref prefix of the URL via check, longest first;
+// the path may be empty (whole repo at that ref).
+func (p Partial) resolveProbed(check RefChecker) (Source, error) {
 	for i := len(p.rest); i >= 1; i-- {
 		ref := strings.Join(p.rest[:i], "/")
 		path := strings.Join(p.rest[i:], "/")
@@ -148,15 +183,9 @@ func (p Partial) resolveListed(refs map[string]string, check RefChecker) (Source
 		if !listed {
 			continue
 		}
-		if sha == "" { // annotated tag: resolve to its commit
-			resolved, ok, err := check(ref)
-			if err != nil {
-				return Source{}, err
-			}
-			if !ok {
-				return Source{}, fmt.Errorf("ref %q could not be resolved to a commit", ref)
-			}
-			sha = resolved
+		sha, err := peeled(check, ref, sha)
+		if err != nil {
+			return Source{}, err
 		}
 		return Build(p.Owner, p.Repo, ref, strings.Join(p.rest[i:], "/"), sha), nil
 	}
@@ -171,8 +200,24 @@ func (p Partial) resolveListed(refs map[string]string, check RefChecker) (Source
 	return Build(p.Owner, p.Repo, p.rest[0], strings.Join(p.rest[1:], "/"), sha), nil
 }
 
+// peeled returns the commit of a listed ref: sha itself, or for an annotated
+// tag (listed with an empty sha) the commit check resolves it to.
+func peeled(check RefChecker, ref, sha string) (string, error) {
+	if sha != "" {
+		return sha, nil
+	}
+	resolved, ok, err := check(ref)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("ref %q %w", ref, errRefUnresolved)
+	}
+	return resolved, nil
+}
+
 func (p Partial) unresolved() error {
-	return fmt.Errorf("could not resolve a branch/tag in %s/%s from URL", p.Owner, p.Repo)
+	return fmt.Errorf("%w in %s/%s from URL", errUnresolved, p.Owner, p.Repo)
 }
 
 // Build assembles a Source directly (used when the ref/commit are already known,

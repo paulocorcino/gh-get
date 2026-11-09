@@ -57,13 +57,13 @@ func (c *Client) checkRef(owner, repo, ref string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	defer resp.Body.Close()
+	defer c.closeBody(resp.Body)
 
 	switch resp.StatusCode {
 	case http.StatusOK:
 		buf, err := io.ReadAll(io.LimitReader(resp.Body, 128))
 		if err != nil {
-			return "", false, err
+			return "", false, fmt.Errorf("reading ref %q: %w", ref, err)
 		}
 		return strings.TrimSpace(string(buf)), true, nil
 	case http.StatusNotFound, http.StatusUnprocessableEntity:
@@ -71,7 +71,7 @@ func (c *Client) checkRef(owner, repo, ref string) (string, bool, error) {
 	case http.StatusForbidden, http.StatusTooManyRequests:
 		return "", false, rateLimitError{status: resp.StatusCode}
 	default:
-		return "", false, fmt.Errorf("unexpected status HTTP %d resolving ref %q", resp.StatusCode, ref)
+		return "", false, fmt.Errorf("%w HTTP %d resolving ref %q", errUnexpectedStatus, resp.StatusCode, ref)
 	}
 }
 
@@ -150,7 +150,7 @@ func collectRefs(body []byte, kind, prefix string, refs map[string]string) error
 		} `json:"object"`
 	}
 	if err := json.Unmarshal(body, &list); err != nil {
-		return err
+		return fmt.Errorf("decoding %s refs: %w", kind, err)
 	}
 	for _, r := range list {
 		name := strings.TrimPrefix(r.Ref, "refs/"+kind+"/")

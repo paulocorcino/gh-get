@@ -1,7 +1,7 @@
 package main
 
 import (
-	"os"
+	"bytes"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -11,11 +11,10 @@ import (
 	"github.com/paulocorcino/gh-get/internal/meta"
 )
 
-func inst(base, rel, owner, repo, branch, path string) installation {
-	return installation{
-		Dir:  filepath.Join(base, filepath.FromSlash(rel)),
-		Meta: meta.Meta{SourceURL: "x", Owner: owner, Repo: repo, Branch: branch, FolderPath: path},
-	}
+// inst is an installation at rel below base whose marker records m.
+func inst(base, rel string, m meta.Meta) installation {
+	m.SourceURL = "x"
+	return installation{Dir: filepath.Join(base, filepath.FromSlash(rel)), Meta: m}
 }
 
 func TestMergeFreeze_KeepsChangesAndAppends(t *testing.T) {
@@ -31,11 +30,11 @@ func TestMergeFreeze_KeepsChangesAndAppends(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	insts := []installation{
-		inst(base, "a", "o", "r", "main", "skills/a"),       // listed (blob == tree)
-		inst(base, "vendor/b", "o", "r", "v2", "skills/b"),  // switched ref
-		inst(base, "whole", "o", "whole", "main", ""),       // bare URL stays bare
-		inst(base, "tools/c", "o", "r", "main", "skills/c"), // new, non-default dest
-		inst(base, "d", "x", "y", "feature/z", "d"),         // new, default dest
+		inst(base, "a", meta.Meta{Owner: "o", Repo: "r", Branch: "main", FolderPath: "skills/a"}),       // listed (blob == tree)
+		inst(base, "vendor/b", meta.Meta{Owner: "o", Repo: "r", Branch: "v2", FolderPath: "skills/b"}),  // switched ref
+		inst(base, "whole", meta.Meta{Owner: "o", Repo: "whole", Branch: "main"}),                       // bare URL stays bare
+		inst(base, "tools/c", meta.Meta{Owner: "o", Repo: "r", Branch: "main", FolderPath: "skills/c"}), // new, non-default dest
+		inst(base, "d", meta.Meta{Owner: "x", Repo: "y", Branch: "feature/z", FolderPath: "d"}),         // new, default dest
 	}
 
 	out, results := mergeFreeze(lines, entries, base, insts)
@@ -67,39 +66,30 @@ func TestRunFreeze_CreatesThenKeepsListFile(t *testing.T) {
 		{SourceURL: "x", Owner: "o", Repo: "r", Branch: "main", FolderPath: "skills/a"},
 		{SourceURL: "x", Owner: "o", Repo: "r", Branch: "main", FolderPath: "skills/b"},
 	} {
-		dir := filepath.Join(root, "sub", filepath.Base(m.FolderPath))
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := meta.Write(dir, m); err != nil {
-			t.Fatal(err)
-		}
+		writeMeta(t, filepath.Join(root, "sub", filepath.Base(m.FolderPath)), m)
 	}
 	list := filepath.Join(root, manifest.DefaultFile)
 
-	if err := runFreeze(list); err != nil {
+	if err := runFreeze(list, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
-	first, err := os.ReadFile(list)
-	if err != nil {
-		t.Fatal(err)
-	}
+	first := mustRead(t, list)
 	entries, err := manifest.Parse(strings.NewReader(string(first)))
 	if err != nil || len(entries) != 2 || entries[0].Dest != "sub/a" || entries[1].Dest != "sub/b" {
 		t.Fatalf("entries = %#v, err %v\n%s", entries, err, first)
 	}
 
-	if err := runFreeze(list); err != nil {
+	if err := runFreeze(list, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
-	second, _ := os.ReadFile(list)
+	second := mustRead(t, list)
 	if string(first) != string(second) {
 		t.Fatalf("second freeze changed the file:\n%s", second)
 	}
 }
 
 func TestRun_FreezeRejectsOtherFlags(t *testing.T) {
-	if err := run([]string{"freeze", "--force"}); err == nil {
+	if err := run([]string{"freeze", "--force"}, new(bytes.Buffer), new(bytes.Buffer)); err == nil {
 		t.Fatal("want error")
 	}
 }

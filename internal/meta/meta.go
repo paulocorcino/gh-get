@@ -5,6 +5,7 @@ package meta
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,29 +33,36 @@ type Meta struct {
 // Read loads the marker from dir. It returns os.ErrNotExist (wrapped) when the
 // file is absent so callers can distinguish "not a gh-get folder".
 func Read(dir string) (Meta, error) {
-	f, err := os.Open(filepath.Join(dir, FileName))
+	f, err := os.Open(filepath.Clean(filepath.Join(dir, FileName)))
 	if err != nil {
-		return Meta{}, err
+		return Meta{}, fmt.Errorf("opening marker: %w", err)
 	}
-	defer f.Close()
+	m, err := parse(f)
+	if cerr := f.Close(); cerr != nil && err == nil {
+		err = fmt.Errorf("closing marker: %w", cerr)
+	}
+	return m, err
+}
 
+// parse decodes the marker's key=value lines.
+func parse(f io.Reader) (Meta, error) {
 	kv := map[string]string{}
 	var files []string
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
-		eq := strings.IndexByte(line, '=')
-		if eq < 0 {
+		before, after, ok := strings.Cut(line, "=")
+		if !ok {
 			continue
 		}
-		if line[:eq] == "file" {
-			files = append(files, line[eq+1:])
+		if before == "file" {
+			files = append(files, after)
 			continue
 		}
-		kv[line[:eq]] = line[eq+1:]
+		kv[before] = after
 	}
 	if err := sc.Err(); err != nil {
-		return Meta{}, err
+		return Meta{}, fmt.Errorf("reading marker: %w", err)
 	}
 
 	return Meta{
@@ -81,5 +89,8 @@ func Write(dir string, m Meta) error {
 	for _, f := range m.Files {
 		b.WriteString("file=" + f + "\n")
 	}
-	return os.WriteFile(filepath.Join(dir, FileName), []byte(b.String()), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("writing marker: %w", err)
+	}
+	return nil
 }

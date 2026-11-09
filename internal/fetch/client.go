@@ -16,10 +16,10 @@ import (
 
 // Endpoints; variables only so tests can point them at a local server.
 var (
-	apiBase      = "https://api.github.com"
-	rawBase      = "https://raw.githubusercontent.com"
-	codeloadBase = "https://codeload.github.com"
-	gitBase      = "https://github.com"
+	apiBase      = "https://api.github.com"            //nolint:gochecknoglobals // test seam: tests point it at a local server
+	rawBase      = "https://raw.githubusercontent.com" //nolint:gochecknoglobals // test seam: tests point it at a local server
+	codeloadBase = "https://codeload.github.com"       //nolint:gochecknoglobals // test seam: tests point it at a local server
+	gitBase      = "https://github.com"                //nolint:gochecknoglobals // test seam: tests point it at a local server
 )
 
 const (
@@ -37,6 +37,21 @@ const (
 
 // errStalled reports a response body that stopped delivering data.
 var errStalled = fmt.Errorf("download stalled: no data received for %s", stallTimeout)
+
+var (
+	// errNotFound reports an HTTP 404 from GitHub.
+	errNotFound = errors.New("not found (HTTP 404)")
+	// errUnexpectedStatus reports a non-2xx status that is not a rate limit.
+	errUnexpectedStatus = errors.New("unexpected status")
+)
+
+// closeBody closes a response body on a read path, where a close failure
+// cannot change the outcome, and reports it through warn instead.
+func (c *Client) closeBody(body io.Closer) {
+	if err := body.Close(); err != nil && c.warn != nil {
+		c.warn(fmt.Sprintf("closing response body: %v", err))
+	}
+}
 
 // Client performs GitHub HTTP requests. The zero value is not usable; use New.
 type Client struct {
@@ -68,7 +83,10 @@ type refResult struct {
 // warn (optional) receives non-fatal notices, such as switching to the
 // API-free fallback after hitting the rate limit.
 func New(token string, warn func(string)) *Client {
-	t := http.DefaultTransport.(*http.Transport).Clone()
+	t := &http.Transport{}
+	if dt, ok := http.DefaultTransport.(*http.Transport); ok {
+		t = dt.Clone()
+	}
 	t.ResponseHeaderTimeout = headerTimeout
 	return &Client{
 		http:    &http.Client{Transport: t},
@@ -115,8 +133,8 @@ func (e rateLimitError) Error() string {
 }
 
 func isRateLimit(err error) bool {
-	_, ok := err.(rateLimitError)
-	return ok
+	var rl rateLimitError
+	return errors.As(err, &rl)
 }
 
 // do issues a GET request, applying auth and standard headers. The caller owns
@@ -124,7 +142,7 @@ func isRateLimit(err error) bool {
 // The body is guarded by a stall watchdog instead of an overall deadline.
 func (c *Client) do(rawurl, accept string) (*http.Response, error) {
 	return c.send(rawurl, func(h http.Header) {
-		h.Set("X-GitHub-Api-Version", "2022-11-28")
+		h.Set("X-Github-Api-Version", "2022-11-28")
 		if accept != "" {
 			h.Set("Accept", accept)
 		}
@@ -141,14 +159,14 @@ func (c *Client) send(rawurl string, header func(http.Header)) (*http.Response, 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
 	if err != nil {
 		cancel(nil)
-		return nil, err
+		return nil, fmt.Errorf("building request for %s: %w", rawurl, err)
 	}
 	req.Header.Set("User-Agent", "gh-get")
 	header(req.Header)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		cancel(nil)
-		return nil, err
+		return nil, fmt.Errorf("requesting: %w", err)
 	}
 	resp.Body = newStallBody(ctx, resp.Body, c.stall, cancel)
 	return resp, nil
@@ -157,7 +175,8 @@ func (c *Client) send(rawurl string, header func(http.Header)) (*http.Response, 
 // stallBody cancels its request when no data arrives for the given duration.
 type stallBody struct {
 	io.ReadCloser
-	ctx    context.Context
+
+	cause  func() error
 	timer  *time.Timer
 	stall  time.Duration
 	cancel context.CancelCauseFunc
@@ -166,7 +185,7 @@ type stallBody struct {
 func newStallBody(ctx context.Context, body io.ReadCloser, stall time.Duration, cancel context.CancelCauseFunc) *stallBody {
 	return &stallBody{
 		ReadCloser: body,
-		ctx:        ctx,
+		cause:      func() error { return context.Cause(ctx) },
 		timer:      time.AfterFunc(stall, func() { cancel(errStalled) }),
 		stall:      stall,
 		cancel:     cancel,
@@ -178,7 +197,7 @@ func (b *stallBody) Read(p []byte) (int, error) {
 	if n > 0 {
 		b.timer.Reset(b.stall)
 	}
-	if err != nil && errors.Is(context.Cause(b.ctx), errStalled) {
+	if err != nil && errors.Is(b.cause(), errStalled) {
 		err = errStalled
 	}
 	return n, err
@@ -188,7 +207,10 @@ func (b *stallBody) Close() error {
 	b.timer.Stop()
 	err := b.ReadCloser.Close()
 	b.cancel(nil)
-	return err
+	if err != nil {
+		return fmt.Errorf("closing response body: %w", err)
+	}
+	return nil
 }
 
 // getJSON fetches rawurl and returns the body bytes, mapping 403/429 to a
@@ -204,16 +226,19 @@ func (c *Client) getWithHeader(rawurl, accept string) ([]byte, http.Header, erro
 	if err != nil {
 		return nil, nil, err
 	}
-	defer resp.Body.Close()
+	defer c.closeBody(resp.Body)
 
 	switch {
 	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
 		return nil, nil, rateLimitError{status: resp.StatusCode}
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, nil, fmt.Errorf("not found (HTTP 404): %s", rawurl)
+		return nil, nil, fmt.Errorf("%w: %s", errNotFound, rawurl)
 	case resp.StatusCode < 200 || resp.StatusCode >= 300:
-		return nil, nil, fmt.Errorf("unexpected status HTTP %d for %s", resp.StatusCode, rawurl)
+		return nil, nil, fmt.Errorf("%w HTTP %d for %s", errUnexpectedStatus, resp.StatusCode, rawurl)
 	}
 	body, err := io.ReadAll(resp.Body)
-	return body, resp.Header, err
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading %s: %w", rawurl, err)
+	}
+	return body, resp.Header, nil
 }

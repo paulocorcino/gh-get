@@ -1,6 +1,9 @@
 package fetch
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 
 	"github.com/paulocorcino/gh-get/internal/ghurl"
@@ -33,35 +36,51 @@ const (
 func (c *Client) Materialize(src ghurl.Source, destDir string, mode WriteMode, prev []string, warn func(string)) ([]string, error) {
 	tmp, err := os.MkdirTemp("", "gh-get-*")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating temporary directory: %w", err)
 	}
-	defer os.RemoveAll(tmp)
+	defer func() {
+		if rerr := os.RemoveAll(tmp); rerr != nil && warn != nil {
+			warn(fmt.Sprintf("could not remove temporary directory %s: %v", tmp, rerr))
+		}
+	}()
 
-	if err := c.download(src, tmp, warn); err != nil {
-		return nil, err
+	if dlErr := c.download(src, tmp, warn); dlErr != nil {
+		return nil, dlErr
 	}
 	files, err := listFiles(tmp)
 	if err != nil {
 		return nil, err
 	}
 
-	switch mode {
-	case Replace:
-		if err := clearContents(destDir); err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
-	case Sync:
-		if err := pruneStale(destDir, prev, files); err != nil {
-			return nil, err
-		}
-	}
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
+	if err := prepareDest(destDir, mode, prev, files); err != nil {
 		return nil, err
 	}
 	if err := publishTree(tmp, destDir, warn); err != nil {
 		return nil, err
 	}
 	return files, nil
+}
+
+// prepareDest readies destDir for publishing files according to mode: Replace
+// clears it, Sync prunes what prev wrote and files no longer has, Merge leaves
+// it as is. destDir exists afterwards.
+func prepareDest(destDir string, mode WriteMode, prev, files []string) error {
+	switch mode {
+	case Replace:
+		if err := clearContents(destDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	case Merge:
+		// Merge overlays onto the existing files; nothing to clear first.
+	case Sync:
+		if err := pruneStale(destDir, prev, files); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("creating destination %s: %w", destDir, err)
+	}
+	return nil
 }
 
 // download writes the folder referenced by src into destDir, which must already
@@ -85,7 +104,7 @@ func (c *Client) download(src ghurl.Source, destDir string, warn func(string)) e
 	}
 
 	if len(entries) == 0 {
-		return errFolderNotFound{path: src.Path}
+		return folderNotFoundError{path: src.Path}
 	}
 
 	if len(entries) > tarballThreshold {
@@ -105,8 +124,8 @@ func (c *Client) download(src ghurl.Source, destDir string, warn func(string)) e
 	return nil
 }
 
-type errFolderNotFound struct{ path string }
+type folderNotFoundError struct{ path string }
 
-func (e errFolderNotFound) Error() string {
+func (e folderNotFoundError) Error() string {
 	return "folder not found in repository: " + e.path
 }

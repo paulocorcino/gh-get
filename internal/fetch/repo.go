@@ -2,8 +2,11 @@ package fetch
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 )
+
+var errNoDefaultBranch = errors.New("could not determine default branch")
 
 // DefaultBranch returns the repository's default branch (e.g. "main"), used when
 // a bare repo URL carries no ref.
@@ -20,7 +23,7 @@ func (c *Client) DefaultBranch(owner, repo string) (string, error) {
 		return "", err
 	}
 	if adv.head == "" {
-		return "", fmt.Errorf("could not determine default branch for %s/%s", owner, repo)
+		return "", fmt.Errorf("%w for %s/%s", errNoDefaultBranch, owner, repo)
 	}
 	return adv.head, nil
 }
@@ -35,10 +38,10 @@ func (c *Client) apiDefaultBranch(owner, repo string) (string, error) {
 		DefaultBranch string `json:"default_branch"`
 	}
 	if err := json.Unmarshal(body, &r); err != nil {
-		return "", err
+		return "", fmt.Errorf("decoding repository info: %w", err)
 	}
 	if r.DefaultBranch == "" {
-		return "", fmt.Errorf("could not determine default branch for %s/%s", owner, repo)
+		return "", fmt.Errorf("%w for %s/%s", errNoDefaultBranch, owner, repo)
 	}
 	return r.DefaultBranch, nil
 }
