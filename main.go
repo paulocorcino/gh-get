@@ -29,6 +29,7 @@ var (
 	ErrUnknownOption       = errors.New("unknown option")
 	ErrUnexpectedArg       = errors.New("unexpected argument")
 	ErrFreezeArgs          = errors.New("freeze only accepts --file")
+	ErrFreezeRemote        = errors.New("freeze writes the list file, so --file must be a local path, not a URL")
 	ErrRecursiveRef        = errors.New("--recursive cannot be combined with --ref or --branch")
 	ErrFileCombined        = errors.New("--file cannot be combined with --recursive, --ref or --branch")
 	ErrRecursiveUpdateOnly = errors.New("--recursive is only valid with update")
@@ -44,10 +45,10 @@ const usage = `gh-get - download a folder (or a whole repo) from GitHub
 
 Usage:
   gh-get <github-url> [destination] [--force] [--ref REF] [--token TOKEN]
-  gh-get -F FILE [--force]
+  gh-get -F FILE|URL [--force]
   gh-get update [--ref REF]
   gh-get update -r | --recursive
-  gh-get update -F FILE
+  gh-get update -F FILE|URL
   gh-get freeze [-F FILE]
   gh-get --install [--no-modify-path]
   gh-get --self-update [--force]
@@ -65,6 +66,10 @@ Description:
   "gh-get update" in a directory with a gh-get.txt (and no .gh-get-source)
   uses that file automatically. "gh-get freeze" scans the current directory
   for downloaded folders and creates or updates gh-get.txt to list them.
+
+  The list file may also live in a GitHub repository: pass its URL to -F and it
+  is read into memory, never saved. Destinations then resolve against the
+  current directory.
 
 URL formats:
   https://github.com/OWNER/REPO                       (whole repo, default branch)
@@ -105,7 +110,8 @@ Options:
                      version or replaces a dev build)
   -f, --force        Overwrite the destination if it already exists
   -F, --file FILE    Download (or, with "update", update) every entry of a
-                     list file such as gh-get.txt
+                     list file such as gh-get.txt, or of a list file in a
+                     GitHub repo given by its URL
       --ref REF      Branch, tag or commit to use; overrides the ref in the URL.
                      With "update", switches the folder to this ref.
   -r, --recursive    With "update", update every gh-get folder at or below the
@@ -359,6 +365,9 @@ func (cl *commandLine) freezeListFile() (string, error) {
 	}
 	if cl.ListFile == "" {
 		return manifest.DefaultFile, nil
+	}
+	if isRemoteList(cl.ListFile) {
+		return "", ErrFreezeRemote
 	}
 	return cl.ListFile, nil
 }

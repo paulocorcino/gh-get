@@ -89,38 +89,36 @@ type listRequest struct {
 // processed sequentially and failures do not stop the run; the command returns
 // non-zero if any entry failed.
 func runList(req listRequest, stdout, stderr io.Writer) error {
-	absList, err := filepath.Abs(req.Path)
-	if err != nil {
-		return fmt.Errorf("resolving the list file: %w", err)
-	}
-	entries, err := manifest.Load(absList)
-	if err != nil {
-		return fmt.Errorf("loading the list file: %w", err)
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("reading the current directory: %w", err)
+	}
+	client := fetch.New(req.Token, warnTo(stderr))
+	list, err := loadList(req.Path, cwd, client)
+	if err != nil {
+		return err
 	}
 
 	verb := "Downloading"
 	if req.Refresh {
 		verb = "Updating"
 	}
-	outf(stdout, "%s %d entr%s from %s\n", verb, len(entries), plural(len(entries), "y", "ies"), displayPath(cwd, absList))
-	if len(entries) == 0 {
+	outf(stdout, "%s %d entr%s from %s\n", verb, len(list.Entries), plural(len(list.Entries), "y", "ies"), list.Label)
+	if len(list.Entries) == 0 {
 		return nil
 	}
 
 	s := listSync{
-		Client:  fetch.New(req.Token, warnTo(stderr)),
-		BaseDir: filepath.Dir(absList),
+		Client:  client,
+		BaseDir: list.BaseDir,
+		ListDir: list.ListDir,
 		Cwd:     cwd,
 		Refresh: req.Refresh,
 		Force:   req.Force,
 	}
 	var claimed []string
 	tally := listTally{Refresh: req.Refresh}
-	for _, e := range entries {
+	for _, e := range list.Entries {
 		label := e.URL
 		dest, action, err := syncListEntry(s, e, claimed)
 		if dest != "" {
@@ -184,7 +182,8 @@ func (t *listTally) summarize(stdout io.Writer) error {
 // listSync is what syncing every entry of one list file shares.
 type listSync struct {
 	Client  *fetch.Client
-	BaseDir string // the list file's directory; relative destinations resolve against it
+	BaseDir string // relative destinations resolve against it
+	ListDir string // the list file's directory, which no destination may contain; "" for a list read from GitHub
 	Cwd     string
 	Refresh bool // update existing entries too, not only download missing ones
 	Force   bool
@@ -203,7 +202,7 @@ func syncListEntry(s listSync, e manifest.Entry, claimed []string) (string, list
 	if err != nil {
 		return dest, 0, err
 	}
-	if err = checkListDest(dest, s.BaseDir, s.Cwd, claimed); err != nil {
+	if err = checkListDest(dest, s.ListDir, s.Cwd, claimed); err != nil {
 		return dest, 0, err
 	}
 
@@ -239,21 +238,13 @@ func syncListEntry(s listSync, e manifest.Entry, claimed []string) (string, list
 // its installed ref is re-checked for the current commit. The destination is
 // returned with an error once it is known.
 func resolveListEntry(s listSync, e manifest.Entry) (ghurl.Source, string, error) {
-	partial, err := ghurl.Parse(e.URL)
-	if err != nil {
-		return ghurl.Source{}, "", fmt.Errorf("parsing URL: %w", err)
-	}
-
 	src, dest, known := installedSource(e, s.BaseDir, !s.Refresh)
 	switch {
 	case !known:
-		src, err = partial.Resolve(
-			s.Client.CheckRef(partial.Owner, partial.Repo),
-			s.Client.ListRefs(partial.Owner, partial.Repo),
-			func() (string, error) { return s.Client.DefaultBranch(partial.Owner, partial.Repo) },
-		)
+		var err error
+		src, err = resolveDownload(s.Client, e.URL, "")
 		if err != nil {
-			return ghurl.Source{}, "", fmt.Errorf("resolving URL: %w", err)
+			return ghurl.Source{}, "", err
 		}
 		dest = entryDest(e, s.BaseDir, src.Repo, src.Path)
 	case s.Refresh:
@@ -271,8 +262,8 @@ func resolveListEntry(s listSync, e manifest.Entry) (ghurl.Source, string, error
 
 // checkListDest refuses a destination that would wipe the list file's
 // directory, the current directory, or the destination of another entry.
-func checkListDest(dest, baseDir, cwd string, claimed []string) error {
-	if containsOrEqual(dest, baseDir) {
+func checkListDest(dest, listDir, cwd string, claimed []string) error {
+	if listDir != "" && containsOrEqual(dest, listDir) {
 		return ErrDestContainsList
 	}
 	if containsOrEqual(dest, cwd) {
