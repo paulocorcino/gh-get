@@ -16,6 +16,7 @@ TYPOS_VERSION=1.52.0           # PyPI
 SHELLCHECK_PY_VERSION=0.11.0.1 # PyPI
 YAMLLINT_VERSION=1.38.0        # PyPI
 MARKDOWNLINT_VERSION=0.18.1    # npm markdownlint-cli2
+JSCPD_VERSION=4.0.5            # npm
 read -ra GL <<<"${GOLANGCI_LINT:-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}}"
 PY=$(command -v python3 || command -v python)
 BASE=${BASE_REF:-origin/main}
@@ -94,6 +95,10 @@ docs() {
   npx --yes "markdownlint-cli2@${MARKDOWNLINT_VERSION}"
 }
 
+clones() {
+  npx --yes "jscpd@${JSCPD_VERSION}" .
+}
+
 secrets() {
   go run "github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}" git --no-banner --redact
 }
@@ -123,6 +128,7 @@ step "workflows (actionlint, zizmor)" workflows
 step "shell scripts (shellcheck, shfmt)" shell_scripts
 step "spelling (typos)" spelling
 step "docs (yamllint, markdownlint)" docs
+step "duplicate code (jscpd)" clones
 step "secrets (gitleaks)" secrets
 step "build" go build ./...
 step "test" go test -race -count=1 -shuffle=on ./...
