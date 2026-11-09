@@ -198,7 +198,7 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 - Done: `main` is protected (pull requests only, the `test` check required and up to date, no force push, no deletion; admins are not forced, so the owner can bypass in an emergency).
 - Done: gitleaks v8.30.1, typos 1.52.0, shellcheck 0.11.0.1 and shfmt v3.13.1 are rows in `scripts/check.sh` at 0 findings; `.github/dependabot.yml` bumps the pinned actions weekly with a 7-day cooldown. Open: markdownlint, yamllint and lychee for docs.
 - D4: `depguard` on with `list-mode: strict` and `allow: [$gostd, github.com/paulocorcino/gh-get]` (no site expected). D6: jscpd, with `docs/lint-scripts/` and the plan's code blocks in its ignore list (not the repo's code).
-- GOOS matrix: the release builds other platforms; run the lint with `GOOS=windows` and `GOOS=linux` (a runner per OS), so code under build constraints is read.
+- Done: `go vet` runs under `GOOS=windows`, `linux` and `darwin` (a row in `scripts/check.sh`). A per-GOOS `golangci-lint` run is not added: the repo has no file under a build constraint (`runtime.GOOS` branches are runtime ones, read by every run), and the lint gave 0 issues under `GOOS=windows`. Revisit when the first `//go:build` or `_windows.go` file appears.
 - **Done when**: `scripts/check.sh` has a row per item above and CI is green.
 
 ### Phase 1: mechanical and surface (Fix by command, then Fix then flip)

@@ -46,6 +46,17 @@ vulns() {
 }
 
 # The PyPI tools (zizmor, typos, shellcheck) live in one throwaway venv, pinned.
+# The release builds windows, linux and darwin: vet reads the code under each GOOS.
+cross_vet() {
+  local os
+  for os in windows linux darwin; do
+    GOOS=$os go vet ./... || {
+      echo "GOOS=$os"
+      return 1
+    }
+  done
+}
+
 PYTOOLS=
 pytools() {
   [ -n "$PYTOOLS" ] && return 0
@@ -96,6 +107,7 @@ debt_shrink() {
 step "format (golangci-lint fmt)" "${GL[@]}" fmt --diff
 step "go mod tidy" go mod tidy -diff
 step "vet" go vet ./...
+step "vet (windows, linux, darwin)" cross_vet
 step "lint (golangci-lint)" "${GL[@]}" run ./...
 step "debt list only shrinks" debt_shrink
 step "unreachable code (deadcode)" unreachable
