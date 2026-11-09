@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "python3 scripts/agent-hook.py pre-bash" }] },
+      { "matcher": "Edit|Write|MultiEdit", "hooks": [{ "type": "command", "command": "python3 scripts/agent-hook.py pre-edit" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write|MultiEdit", "hooks": [{ "type": "command", "command": "python3 scripts/agent-hook.py post-edit", "timeout": 120 }] }
+    ]
+  }
+}

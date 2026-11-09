@@ -5,7 +5,7 @@ gh-get downloads a folder (or a whole repo) from GitHub. Domain terms: `CONTEXT.
 ## Lint gate
 
 - Before you call a change done, run `scripts/check.sh`; it passes when every row prints `ok`. CI runs the same script.
-- While you edit, there is no per-edit hook yet: run `scripts/check.sh` after each group of edits and read the failing rows.
+- While you edit, `.claude/settings.json` runs the fast loop for you: after each Go edit, the formatter and the linter on that package, and their output comes back to you. It refuses `--no-verify` and force push, and asks before an edit to a file that defines the gate. It is not the gate: run `scripts/check.sh` after each group of edits and read the failing rows.
 - When a rule fails, fix the cause:
   - an error that nobody reads goes to its caller or to the log; wrap an error once, at the package boundary;
   - output goes through the writer passed to `run` (`stdout`, `stderr`), never `fmt.Print*`; only `main` exits;
