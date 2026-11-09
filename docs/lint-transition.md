@@ -191,7 +191,7 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 ### Phase 0: the gate itself
 
 - **Rules**: none. **Slices**: one commit per item.
-- Done: `govulncheck` v1.9.0 is a row in `scripts/check.sh`; CI (go 1.26.10) reports 0 findings. A local go older than 1.26.10 fails this row on standard-library findings: upgrade the toolchain.
+- Done: `govulncheck` v1.9.0 is a row in `scripts/check.sh`; CI (go 1.27.3) reports 0 findings. A local go with unfixed standard-library findings (1.26.4, for one) fails this row on standard-library findings: upgrade the toolchain.
 - Pins: a test or step that compares the CI `go-version`, `GOLANGCI_LINT_VERSION` and `DEADCODE_VERSION` in `scripts/check.sh` with the versions this plan names; `go run pkg@version` is verified by the Go checksum database. A scheduled job that opens an issue when a pinned tool has a newer release (`drift.py age`).
 - Done: per-edit hooks for Claude Code in `.claude/settings.json` (`scripts/agent-hook.py`): formatter and linter on the edited package after a Go edit, the no-verify and no-gpg-sign flags and force push refused (git arguments only, not quoted text), an edit to a gate file asks first. The scripts are linted by ruff 0.17.4 (`ruff.toml`), a row in the gate. Open: the same hook for other agents (Codex, Cursor).
 - Done: actions pinned by SHA, `persist-credentials: false`, `softprops/action-gh-release` replaced by `gh release create`; actionlint v1.7.12 and zizmor 1.32.0 are a row in `scripts/check.sh` at 0 findings.
@@ -337,7 +337,7 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 | go: Tests | on — go test -race -count=1 -shuffle=on |
 | go: Coverage of the diff | not measured — no diff-coverage tool installed |
 | go: Mutation | phase 0 |
-| go: Go floor and tool pins | phase 0 — CI pins go 1.26.10 and golangci-lint/deadcode by version; checksum check and a pin test remain |
+| go: Go floor and tool pins | phase 0 — CI pins go 1.27.3 and golangci-lint/deadcode by version; checksum check and a pin test remain |
 | go: exhaustruct | out — deprecated, against zero values |
 | go: funlen, lll | out — length is not the defect |
 | go: cyclop, gocyclo, maintidx with gocognit | out — one measure: gocognit |
