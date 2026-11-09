@@ -3,3 +3,7 @@
 /dist/
 # Ralphy run artifacts (scratch, logs, per-run plans)
 .ralphy/
+
+# staged-plan runtime artifacts
+docs/plans/logs/
+docs/plans/__pycache__/
