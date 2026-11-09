@@ -109,15 +109,7 @@ func TestRun_RejectsRecursiveOutsideUpdate(t *testing.T) {
 }
 
 func TestRun_RecursiveNoInstallationsSucceeds(t *testing.T) {
-	old, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	t.Cleanup(func() { _ = os.Chdir(old) })
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
+	t.Chdir(t.TempDir())
 
 	if err := run([]string{"update", "--recursive", "--token", "test"}); err != nil {
 		t.Fatal(err)

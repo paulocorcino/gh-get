@@ -124,7 +124,7 @@ func isRateLimit(err error) bool {
 // The body is guarded by a stall watchdog instead of an overall deadline.
 func (c *Client) do(rawurl, accept string) (*http.Response, error) {
 	return c.send(rawurl, func(h http.Header) {
-		h.Set("X-GitHub-Api-Version", "2022-11-28")
+		h.Set("X-Github-Api-Version", "2022-11-28")
 		if accept != "" {
 			h.Set("Accept", accept)
 		}

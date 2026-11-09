@@ -13,8 +13,8 @@ func folderMember(folder, entryPath string) (rel string, ok bool) {
 	if folder == "" {
 		return entryPath, true
 	}
-	if strings.HasPrefix(entryPath, folder+"/") {
-		return strings.TrimPrefix(entryPath, folder+"/"), true
+	if after, found := strings.CutPrefix(entryPath, folder+"/"); found {
+		return after, true
 	}
 	return "", false
 }

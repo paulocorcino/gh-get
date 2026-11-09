@@ -43,15 +43,15 @@ func Read(dir string) (Meta, error) {
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
-		eq := strings.IndexByte(line, '=')
-		if eq < 0 {
+		before, after, ok := strings.Cut(line, "=")
+		if !ok {
 			continue
 		}
-		if line[:eq] == "file" {
-			files = append(files, line[eq+1:])
+		if before == "file" {
+			files = append(files, after)
 			continue
 		}
-		kv[line[:eq]] = line[eq+1:]
+		kv[before] = after
 	}
 	if err := sc.Err(); err != nil {
 		return Meta{}, err

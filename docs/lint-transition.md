@@ -342,3 +342,8 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 
 - 2026-11-08, step 5: every rule with 0 sites is an error; 425 sites listed as debt, 94 `noinlineerr` sites as noise.
 - 2026-11-08, lint(stage 1): `depguard` on with `list-mode: strict`, allow `$gostd` and the module path (D4 taken, 0 sites); `scripts/lint-only.sh <linter> [paths]` runs one linter while it is in the debt list.
+- 2026-11-08, lint(stage 2): `perfsprint` flipped (15 sites: `fmt.Errorf` without verbs to `errors.New`, one `strings.Builder` in a test helper).
+- 2026-11-08, lint(stage 2): `modernize` flipped (4 sites: `range` over int, `FieldsSeq`, `CutPrefix`, `strings.Cut`).
+- 2026-11-08, lint(stage 2): `intrange` flipped (1 site, fixed by the same `range 5` edit as `modernize`).
+- 2026-11-08, lint(stage 2): `usetesting` flipped (2 sites: `t.Chdir` in `TestRun_RecursiveNoInstallationsSucceeds`).
+- 2026-11-08, lint(stage 2): `canonicalheader` flipped (1 site: `X-Github-Api-Version`; `Header.Set` canonicalizes both spellings to the same key, so the request is unchanged).

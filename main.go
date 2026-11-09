@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -123,7 +124,7 @@ func run(args []string) error {
 		modifyPath := true
 		for _, a := range args[1:] {
 			if a != "--no-modify-path" {
-				return fmt.Errorf("--install only accepts --no-modify-path")
+				return errors.New("--install only accepts --no-modify-path")
 			}
 			modifyPath = false
 		}
@@ -132,7 +133,7 @@ func run(args []string) error {
 		force := false
 		for _, a := range args[1:] {
 			if a != "-f" && a != "--force" {
-				return fmt.Errorf("--self-update only accepts --force")
+				return errors.New("--self-update only accepts --force")
 			}
 			force = true
 		}
@@ -156,7 +157,7 @@ func run(args []string) error {
 			recursive = true
 		case a == "--token":
 			if i+1 >= len(args) {
-				return fmt.Errorf("--token requires a value")
+				return errors.New("--token requires a value")
 			}
 			i++
 			tokenFlag = args[i]
@@ -192,7 +193,7 @@ func run(args []string) error {
 			return fmt.Errorf("unexpected argument: %s", positional[1])
 		}
 		if force || recursive || refFlag != "" {
-			return fmt.Errorf("freeze only accepts --file")
+			return errors.New("freeze only accepts --file")
 		}
 		if listFile == "" {
 			listFile = manifest.DefaultFile
@@ -204,10 +205,10 @@ func run(args []string) error {
 			return fmt.Errorf("unexpected argument: %s", positional[1])
 		}
 		if recursive && refFlag != "" {
-			return fmt.Errorf("--recursive cannot be combined with --ref or --branch")
+			return errors.New("--recursive cannot be combined with --ref or --branch")
 		}
 		if listFile != "" && (recursive || refFlag != "") {
-			return fmt.Errorf("--file cannot be combined with --recursive, --ref or --branch")
+			return errors.New("--file cannot be combined with --recursive, --ref or --branch")
 		}
 		token := resolveToken(tokenFlag)
 		if listFile != "" {
@@ -219,21 +220,21 @@ func run(args []string) error {
 		return runUpdate(token, refFlag)
 	}
 	if recursive {
-		return fmt.Errorf("--recursive is only valid with update")
+		return errors.New("--recursive is only valid with update")
 	}
 	if listFile != "" {
 		if len(positional) > 0 {
 			return fmt.Errorf("unexpected argument with --file: %s", positional[0])
 		}
 		if refFlag != "" {
-			return fmt.Errorf("--file cannot be combined with --ref or --branch (put the ref in each URL)")
+			return errors.New("--file cannot be combined with --ref or --branch (put the ref in each URL)")
 		}
 		return runList(listFile, resolveToken(tokenFlag), false, force)
 	}
 
 	if len(positional) == 0 {
 		fmt.Print(usage)
-		return fmt.Errorf("missing GitHub URL")
+		return errors.New("missing GitHub URL")
 	}
 	if len(positional) > 2 {
 		return fmt.Errorf("unexpected argument: %s", positional[2])

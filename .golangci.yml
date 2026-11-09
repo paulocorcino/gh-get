@@ -60,16 +60,12 @@ linters:
     - goconst
     # debt: 24 sites
     - gocognit
-    # debt: 15 sites
-    - perfsprint
     # debt: 6 sites
     - govet
     # debt: 5 sites
     - gochecknoglobals
     # debt: 5 sites
     - nonamedreturns
-    # debt: 4 sites
-    - modernize
     # debt: 4 sites
     - revive
     # debt: 3 sites
@@ -84,18 +80,12 @@ linters:
     - nestif
     # debt: 2 sites
     - thelper
-    # debt: 2 sites
-    - usetesting
-    # debt: 1 site
-    - canonicalheader
     # debt: 1 site
     - containedctx
     # debt: 1 site
     - embeddedstructfieldcheck
     # debt: 1 site
     - errname
-    # debt: 1 site
-    - intrange
   settings:
     depguard:
       rules:

@@ -1,6 +1,9 @@
 package ghurl
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParse(t *testing.T) {
 	cases := []struct {
@@ -263,12 +266,12 @@ func TestResolve_SingleSegmentSkipsListing(t *testing.T) {
 }
 
 func join(s []string) string {
-	out := ""
+	var out strings.Builder
 	for i, x := range s {
 		if i > 0 {
-			out += "/"
+			out.WriteString("/")
 		}
-		out += x
+		out.WriteString(x)
 	}
-	return out
+	return out.String()
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,7 +47,7 @@ func planListEntry(st destState, src ghurl.Source, refresh, force bool) (listAct
 	case st.Managed:
 		return 0, fmt.Errorf("destination holds a different gh-get download (%s); use --force to replace it", st.Meta.SourceURL)
 	default:
-		return 0, fmt.Errorf("destination exists and was not downloaded by gh-get; use --force to replace it")
+		return 0, errors.New("destination exists and was not downloaded by gh-get; use --force to replace it")
 	}
 }
 
@@ -172,10 +173,10 @@ func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, 
 	}
 
 	if containsOrEqual(dest, baseDir) {
-		return dest, 0, fmt.Errorf("destination contains the list file's directory")
+		return dest, 0, errors.New("destination contains the list file's directory")
 	}
 	if containsOrEqual(dest, cwd) {
-		return dest, 0, fmt.Errorf("destination contains the current directory")
+		return dest, 0, errors.New("destination contains the current directory")
 	}
 	for _, other := range claimed {
 		if containsOrEqual(dest, other) || containsOrEqual(other, dest) {

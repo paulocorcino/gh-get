@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,7 +36,7 @@ func installDir() (string, error) {
 	if runtime.GOOS == "windows" {
 		base := os.Getenv("LOCALAPPDATA")
 		if base == "" {
-			return "", fmt.Errorf("LOCALAPPDATA is not set")
+			return "", errors.New("LOCALAPPDATA is not set")
 		}
 		return filepath.Join(base, "Programs", "gh-get"), nil
 	}

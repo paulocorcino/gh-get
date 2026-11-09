@@ -3,6 +3,7 @@ package fetch
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -97,7 +98,7 @@ func parseAdvertisement(data []byte) (advertisement, error) {
 	adv := advertisement{refs: map[string]string{}}
 	for len(data) > 0 {
 		if len(data) < 4 {
-			return advertisement{}, fmt.Errorf("truncated pkt-line")
+			return advertisement{}, errors.New("truncated pkt-line")
 		}
 		n, err := strconv.ParseUint(string(data[:4]), 16, 16)
 		if err != nil {
@@ -117,7 +118,7 @@ func parseAdvertisement(data []byte) (advertisement, error) {
 		}
 
 		if i := bytes.IndexByte(line, 0); i >= 0 {
-			for _, capa := range strings.Fields(string(line[i+1:])) {
+			for capa := range strings.FieldsSeq(string(line[i+1:])) {
 				if target, ok := strings.CutPrefix(capa, "symref=HEAD:"); ok {
 					adv.head = strings.TrimPrefix(target, "refs/heads/")
 				}
