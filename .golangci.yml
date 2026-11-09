@@ -1,0 +1,166 @@
+version: "2"
+linters:
+  default: all
+  # The lint gate: every linter is on. A linter in `disable` is debt that docs/lint-transition.md
+  # turns on (this list only shrinks), or noise, off for good with its reason.
+  disable:
+    # noise: one complexity measure: gocognit
+    - cyclop
+    # noise: decision first: on with the rules of the layers (D4)
+    - depguard
+    # noise: jscpd measures clones across the repo
+    - dupl
+    # noise: deprecated; forces every field in every literal, against zero values
+    - exhaustruct
+    # noise: successor of exhaustruct, the same rule
+    - exhaustruct_v5
+    # noise: gocognit finds the real problem with fewer false alarms
+    - funlen
+    # noise: one complexity measure: gocognit
+    - gocyclo
+    # noise: comment punctuation
+    - godot
+    # noise: deprecated; depguard holds the imports
+    - gomodguard
+    # noise: deprecated; depguard holds the imports
+    - gomodguard_v2
+    # noise: returning an interface is sometimes the design
+    - ireturn
+    # noise: gofmt owns layout; the line-width knob is not asked for Go
+    - lll
+    # noise: one complexity measure: gocognit
+    - maintidx
+    # noise: every literal becomes a constant with no better name
+    - mnd
+    # noise: blank-line style only
+    - nlreturn
+    # noise: idiomatic `if err := f(); err != nil` form; style only, no defect class (decision D1)
+    - noinlineerr
+    # noise: decision first: whether tests run in parallel (D5)
+    - paralleltest
+    # noise: an external wire format picks its own casing
+    - tagliatelle
+    # noise: black-box test packages are a choice
+    - testpackage
+    # noise: decision first: whether tests run in parallel (D5)
+    - tparallel
+    # noise: short names in short scopes are idiomatic
+    - varnamelen
+    # noise: deprecated; blank-line style only
+    - wsl
+    # noise: blank-line style only
+    - wsl_v5
+    # debt: 79 sites
+    - forbidigo
+    # debt: 77 sites
+    - wrapcheck
+    # debt: 56 sites
+    - err113
+    # debt: 56 sites
+    - errcheck
+    # debt: 28 sites
+    - goconst
+    # debt: 24 sites
+    - gocognit
+    # debt: 15 sites
+    - perfsprint
+    # debt: 6 sites
+    - govet
+    # debt: 5 sites
+    - gochecknoglobals
+    # debt: 5 sites
+    - nonamedreturns
+    # debt: 4 sites
+    - modernize
+    # debt: 4 sites
+    - revive
+    # debt: 3 sites
+    - exhaustive
+    # debt: 3 sites
+    - forcetypeassert
+    # debt: 3 sites
+    - noctx
+    # debt: 2 sites
+    - errorlint
+    # debt: 2 sites
+    - nestif
+    # debt: 2 sites
+    - thelper
+    # debt: 2 sites
+    - usetesting
+    # debt: 1 site
+    - canonicalheader
+    # debt: 1 site
+    - containedctx
+    # debt: 1 site
+    - embeddedstructfieldcheck
+    # debt: 1 site
+    - errname
+    # debt: 1 site
+    - intrange
+  settings:
+    gocognit:
+      min-complexity: 10
+    nestif:
+      min-complexity: 4           # nestif scores nested blocks; the depth knob (3) is revive's max-control-nesting
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    govet:
+      enable-all: true
+      disable: [fieldalignment]   # byte order of struct fields: noise outside hot paths
+    exhaustive:
+      default-signifies-exhaustive: false
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+    revive:
+      enable-default-rules: true  # a `rules` list alone replaces the defaults
+      rules:
+        - name: argument-limit
+          arguments: [5]
+        - name: max-control-nesting
+          arguments: [3]
+    gocritic:
+      disabled-checks:
+        # debt: 1 site
+        - badCall
+    gosec:
+      excludes:
+        # debt: 17 sites
+        - G104
+        # debt: 15 sites
+        - G304
+        # debt: 5 sites
+        - G703
+        # debt: 3 sites
+        - G602
+        # debt: 1 site
+        - G122
+        # debt: 1 site
+        - G204
+        # debt: 1 site
+        - G306
+      config:                     # the widest mode each rule accepts; a tool that writes files with these modes is not a finding
+        G301: "0755"
+        G302: "0755"
+        G306: "0644"
+    forbidigo:
+      forbid:                     # a `forbid` list replaces the default pattern, so keep it
+        - pattern: ^(fmt\.Print(|f|ln)|print|println)$
+        - pattern: ^os\.Exit$
+          msg: exit skips every defer; return from main
+        # decision first: one package owns spawns, and a test waits on a condition
+        # - pattern: ^exec\.Command$
+        # - pattern: ^time\.Sleep$
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [err113, wrapcheck]
+formatters:
+  enable: [gofumpt, goimports]
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: false             # the default keeps one issue per line and hides the rest
