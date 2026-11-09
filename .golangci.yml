@@ -48,12 +48,6 @@ linters:
     - wsl
     # noise: blank-line style only
     - wsl_v5
-    # debt: 24 sites
-    - gocognit
-    # debt: 4 sites
-    - revive
-    # debt: 2 sites
-    - nestif
   settings:
     depguard:
       rules:
@@ -64,8 +58,9 @@ linters:
           allow:
             - $gostd
             - github.com/paulocorcino/gh-get
+    # ceiling in steps: 35, then 10 (docs/lint-transition.md, Phase 5)
     gocognit:
-      min-complexity: 10
+      min-complexity: 35
     nestif:
       min-complexity: 4           # nestif scores nested blocks; the depth knob (3) is revive's max-control-nesting
     errcheck:

@@ -47,13 +47,7 @@ func mergeFreeze(lines []string, entries []manifest.Entry, baseDir string, insts
 	var added []installation
 
 	for _, inst := range insts {
-		idx := -1
-		for i, e := range entries {
-			if !matched[i] && entryTargets(e, baseDir, inst.Dir) {
-				idx = i
-				break
-			}
-		}
+		idx := matchEntry(entries, matched, baseDir, inst.Dir)
 		if idx < 0 {
 			added = append(added, inst)
 			continue
@@ -70,18 +64,35 @@ func mergeFreeze(lines []string, entries []manifest.Entry, baseDir string, insts
 
 	sort.Slice(added, func(i, j int) bool { return added[i].Dir < added[j].Dir })
 	for _, inst := range added {
-		line := sourceURL(inst.Meta)
-		rel, err := filepath.Rel(baseDir, inst.Dir)
-		if err != nil {
-			rel = inst.Dir
-		}
-		if rel != defaultDestName(inst.Meta) {
-			line += "  " + filepath.ToSlash(rel)
-		}
-		out = append(out, line)
+		out = append(out, freezeLine(inst, baseDir))
 		results = append(results, freezeResult{inst, freezeAdded})
 	}
 	return out, results
+}
+
+// matchEntry returns the index of the first entry not yet matched that puts
+// its folder at dir, or -1.
+func matchEntry(entries []manifest.Entry, matched map[int]bool, baseDir, dir string) int {
+	for i, e := range entries {
+		if !matched[i] && entryTargets(e, baseDir, dir) {
+			return i
+		}
+	}
+	return -1
+}
+
+// freezeLine is the list line that describes inst: its source URL, followed by
+// its destination relative to baseDir unless that is the default one.
+func freezeLine(inst installation, baseDir string) string {
+	line := sourceURL(inst.Meta)
+	rel, err := filepath.Rel(baseDir, inst.Dir)
+	if err != nil {
+		rel = inst.Dir
+	}
+	if rel != defaultDestName(inst.Meta) {
+		line += "  " + filepath.ToSlash(rel)
+	}
+	return line
 }
 
 // entryTargets reports whether entry e (offline, without resolving refs) puts
@@ -170,27 +181,70 @@ func runFreeze(listPath string, stdout io.Writer) error {
 	}
 	baseDir := filepath.Dir(absList)
 
-	var lines []string
-	var entries []manifest.Entry
-	data, err := os.ReadFile(absList) //nolint:gosec // G304,G703: the list file path is the user's own command-line argument by design
-	exists := err == nil
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		lines = strings.Split(strings.TrimSuffix(freezeHeader, "\n"), "\n")
-	case err != nil:
-		return fmt.Errorf("reading the list file: %w", err)
-	default:
-		text := strings.TrimSuffix(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-		if text != "" {
-			lines = strings.Split(text, "\n")
-		}
-		if entries, err = manifest.Parse(strings.NewReader(string(data))); err != nil {
-			return fmt.Errorf("%s: %w", listPath, err)
-		}
+	list, err := readFreezeList(absList, listPath)
+	if err != nil {
+		return err
 	}
 
 	outln(stdout, "Searching for gh-get installations under:")
 	outln(stdout, "  "+baseDir)
+	insts, failed := scanInstallations(baseDir, stdout)
+
+	out, results := mergeFreeze(list.Lines, list.Entries, baseDir, insts)
+	tally := reportFreeze(results, baseDir, stdout)
+
+	if tally.Added+tally.Changed > 0 || !list.Exists {
+		if err := os.WriteFile(absList, []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil { //nolint:gosec // G703: the list file path is the user's own command-line argument by design
+			return fmt.Errorf("writing the list file: %w", err)
+		}
+		outf(stdout, "\nWrote %s\n", absList)
+	} else {
+		outf(stdout, "\n%s is already up to date.\n", absList)
+	}
+	outln(stdout, "Summary:")
+	outf(stdout, "  Added:          %d\n", tally.Added)
+	outf(stdout, "  Changed:        %d\n", tally.Changed)
+	outf(stdout, "  Already listed: %d\n", tally.Kept)
+	outf(stdout, "  Failed:         %d\n", failed)
+	if failed > 0 {
+		return fmt.Errorf("%d %w", failed, ErrFoldersUnread)
+	}
+	return nil
+}
+
+// freezeList is a list file as freeze reads it: its raw lines, its parsed
+// entries, and whether it exists (a missing one starts from freezeHeader).
+type freezeList struct {
+	Lines   []string
+	Entries []manifest.Entry
+	Exists  bool
+}
+
+// readFreezeList reads the list file at absList; listPath names it in a parse
+// error.
+func readFreezeList(absList, listPath string) (freezeList, error) {
+	data, err := os.ReadFile(absList) //nolint:gosec // G304,G703: the list file path is the user's own command-line argument by design
+	if errors.Is(err, os.ErrNotExist) {
+		return freezeList{Lines: strings.Split(strings.TrimSuffix(freezeHeader, "\n"), "\n")}, nil
+	}
+	if err != nil {
+		return freezeList{}, fmt.Errorf("reading the list file: %w", err)
+	}
+	list := freezeList{Exists: true}
+	text := strings.TrimSuffix(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	if text != "" {
+		list.Lines = strings.Split(text, "\n")
+	}
+	if list.Entries, err = manifest.Parse(strings.NewReader(string(data))); err != nil {
+		return freezeList{}, fmt.Errorf("%s: %w", listPath, err)
+	}
+	return list, nil
+}
+
+// scanInstallations finds the gh-get folders under baseDir, printing the ones
+// it skips or cannot read, and returns the installations with the count of
+// failures.
+func scanInstallations(baseDir string, stdout io.Writer) ([]installation, int) {
 	discovery := discoverRecursive(baseDir)
 	failed := len(discovery.Errors)
 	for _, scanErr := range discovery.Errors {
@@ -207,8 +261,8 @@ func runFreeze(listPath string, stdout io.Writer) error {
 			continue
 		}
 		m, err := meta.Read(dir)
-		if err == nil && (m.Owner == "" || m.Repo == "" || m.Branch == "") {
-			err = ErrInvalidMarker
+		if err == nil {
+			err = checkMarker(m)
 		}
 		if err != nil {
 			failed++
@@ -217,40 +271,42 @@ func runFreeze(listPath string, stdout io.Writer) error {
 		}
 		insts = append(insts, installation{Dir: dir, Meta: m})
 	}
+	return insts, failed
+}
 
-	out, results := mergeFreeze(lines, entries, baseDir, insts)
+// checkMarker requires a source marker to name an owner, a repo and a branch.
+func checkMarker(m meta.Meta) error {
+	if m.Owner == "" || m.Repo == "" || m.Branch == "" {
+		return ErrInvalidMarker
+	}
+	return nil
+}
+
+// freezeTally counts the list entries a freeze added, changed and kept.
+type freezeTally struct {
+	Added   int
+	Changed int
+	Kept    int
+}
+
+// reportFreeze prints one line per merge result, sorted by folder, and counts
+// them.
+func reportFreeze(results []freezeResult, baseDir string, stdout io.Writer) freezeTally {
 	sort.Slice(results, func(i, j int) bool { return results[i].Inst.Dir < results[j].Inst.Dir })
-	var kept, changed, added int
+	var tally freezeTally
 	for _, r := range results {
 		label := displayPath(baseDir, r.Inst.Dir)
 		switch r.Status {
 		case freezeAdded:
-			added++
+			tally.Added++
 			outf(stdout, "[added]   %s\n", label)
 		case freezeChanged:
-			changed++
+			tally.Changed++
 			outf(stdout, "[changed] %s -> %s\n", label, sourceURL(r.Inst.Meta))
 		case freezeKept:
-			kept++
+			tally.Kept++
 			outf(stdout, "[listed]  %s\n", label)
 		}
 	}
-
-	if added+changed > 0 || !exists {
-		if err := os.WriteFile(absList, []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil { //nolint:gosec // G703: the list file path is the user's own command-line argument by design
-			return fmt.Errorf("writing the list file: %w", err)
-		}
-		outf(stdout, "\nWrote %s\n", absList)
-	} else {
-		outf(stdout, "\n%s is already up to date.\n", absList)
-	}
-	outln(stdout, "Summary:")
-	outf(stdout, "  Added:          %d\n", added)
-	outf(stdout, "  Changed:        %d\n", changed)
-	outf(stdout, "  Already listed: %d\n", kept)
-	outf(stdout, "  Failed:         %d\n", failed)
-	if failed > 0 {
-		return fmt.Errorf("%d %w", failed, ErrFoldersUnread)
-	}
-	return nil
+	return tally
 }

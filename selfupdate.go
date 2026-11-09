@@ -71,20 +71,9 @@ func selfUpdate(exe, current, asset string, force bool, stdout io.Writer) error 
 	}
 
 	outf(stdout, "Downloading gh-get %s (%s)...\n", latest, asset)
-	sums, err := fetchReleaseFile(ctx, client, latest, "checksums.txt")
+	bin, err := fetchVerifiedAsset(ctx, client, latest, asset)
 	if err != nil {
-		return fmt.Errorf("fetching checksums: %w", err)
-	}
-	want, err := checksumFor(sums, asset)
-	if err != nil {
-		return fmt.Errorf("verifying: %w", err)
-	}
-	bin, err := fetchReleaseFile(ctx, client, latest, asset)
-	if err != nil {
-		return fmt.Errorf("fetching the binary: %w", err)
-	}
-	if sum := sha256.Sum256(bin); hex.EncodeToString(sum[:]) != want {
-		return fmt.Errorf("%w for %s; the binary was not replaced", ErrChecksumMismatch, asset)
+		return err
 	}
 
 	if err := replaceExecutable(exe, bin); err != nil {
@@ -95,6 +84,27 @@ func selfUpdate(exe, current, asset string, force bool, stdout io.Writer) error 
 	}
 	outf(stdout, "Updated gh-get %s -> %s\n  %s\n", current, latest, exe)
 	return nil
+}
+
+// fetchVerifiedAsset downloads the release file asset of release tag and
+// checks it against the release's checksums.txt.
+func fetchVerifiedAsset(ctx context.Context, client *http.Client, tag, asset string) ([]byte, error) {
+	sums, err := fetchReleaseFile(ctx, client, tag, "checksums.txt")
+	if err != nil {
+		return nil, fmt.Errorf("fetching checksums: %w", err)
+	}
+	want, err := checksumFor(sums, asset)
+	if err != nil {
+		return nil, fmt.Errorf("verifying: %w", err)
+	}
+	bin, err := fetchReleaseFile(ctx, client, tag, asset)
+	if err != nil {
+		return nil, fmt.Errorf("fetching the binary: %w", err)
+	}
+	if sum := sha256.Sum256(bin); hex.EncodeToString(sum[:]) != want {
+		return nil, fmt.Errorf("%w for %s; the binary was not replaced", ErrChecksumMismatch, asset)
+	}
+	return bin, nil
 }
 
 // latestRelease returns the tag of the latest release, read from the redirect
@@ -175,39 +185,54 @@ func checksumFor(sums []byte, asset string) (string, error) {
 // cannot overwrite a running executable but can rename it, so the old one is
 // moved aside and removed on a later run (see removeReplacedBinary).
 func replaceExecutable(exe string, data []byte) error {
+	staged, err := stageBinary(exe, data)
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS == goosWindows {
+		return swapRunningBinary(exe, staged)
+	}
+	if err := os.Rename(staged, exe); err != nil {
+		removeOrWarn(staged)
+		return fmt.Errorf("installing the new binary: %w", err)
+	}
+	return nil
+}
+
+// stageBinary writes data to a new executable file beside exe and returns its
+// path; on a failure nothing is left behind.
+func stageBinary(exe string, data []byte) (string, error) {
 	tmp, err := os.CreateTemp(filepath.Dir(exe), ".gh-get-new-*")
 	if err != nil {
-		return fmt.Errorf("staging the new binary: %w", err)
+		return "", fmt.Errorf("staging the new binary: %w", err)
 	}
 	staged := tmp.Name()
 	_, werr := tmp.Write(data)
 	cerr := tmp.Close()
 	if err := errors.Join(werr, cerr, os.Chmod(staged, 0o755)); err != nil {
 		removeOrWarn(staged)
-		return fmt.Errorf("staging the new binary: %w", err)
+		return "", fmt.Errorf("staging the new binary: %w", err)
 	}
+	return staged, nil
+}
 
-	if runtime.GOOS == goosWindows {
-		old := exe + ".old"
-		if err := os.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			// A previous old binary is still running; pick a fresh name.
-			old += "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-		}
-		if err := os.Rename(exe, old); err != nil {
-			removeOrWarn(staged)
-			return fmt.Errorf("moving the old binary aside: %w", err)
-		}
-		if err := os.Rename(staged, exe); err != nil {
-			if rerr := os.Rename(old, exe); rerr != nil { // put the original back
-				warn("restoring " + exe + ": " + rerr.Error())
-			}
-			removeOrWarn(staged)
-			return fmt.Errorf("installing the new binary: %w", err)
-		}
-		return nil
+// swapRunningBinary puts the staged binary at exe on Windows, which cannot
+// overwrite a running executable but can rename it: the old one is moved aside
+// (removed on a later run) and put back if the swap fails.
+func swapRunningBinary(exe, staged string) error {
+	old := exe + ".old"
+	if err := os.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		// A previous old binary is still running; pick a fresh name.
+		old += "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	}
-
+	if err := os.Rename(exe, old); err != nil {
+		removeOrWarn(staged)
+		return fmt.Errorf("moving the old binary aside: %w", err)
+	}
 	if err := os.Rename(staged, exe); err != nil {
+		if rerr := os.Rename(old, exe); rerr != nil { // put the original back
+			warn("restoring " + exe + ": " + rerr.Error())
+		}
 		removeOrWarn(staged)
 		return fmt.Errorf("installing the new binary: %w", err)
 	}

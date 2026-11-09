@@ -89,8 +89,7 @@ type listRequest struct {
 // processed sequentially and failures do not stop the run; the command returns
 // non-zero if any entry failed.
 func runList(req listRequest, stdout, stderr io.Writer) error {
-	listPath, token, refresh, force := req.Path, req.Token, req.Refresh, req.Force
-	absList, err := filepath.Abs(listPath)
+	absList, err := filepath.Abs(req.Path)
 	if err != nil {
 		return fmt.Errorf("resolving the list file: %w", err)
 	}
@@ -102,10 +101,9 @@ func runList(req listRequest, stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("reading the current directory: %w", err)
 	}
-	baseDir := filepath.Dir(absList)
 
 	verb := "Downloading"
-	if refresh {
+	if req.Refresh {
 		verb = "Updating"
 	}
 	outf(stdout, "%s %d entr%s from %s\n", verb, len(entries), plural(len(entries), "y", "ies"), displayPath(cwd, absList))
@@ -113,103 +111,107 @@ func runList(req listRequest, stdout, stderr io.Writer) error {
 		return nil
 	}
 
-	client := fetch.New(token, warnTo(stderr))
+	s := listSync{
+		Client:  fetch.New(req.Token, warnTo(stderr)),
+		BaseDir: filepath.Dir(absList),
+		Cwd:     cwd,
+		Refresh: req.Refresh,
+		Force:   req.Force,
+	}
 	var claimed []string
-	var installed, updated, current, failed int
+	tally := listTally{Refresh: req.Refresh}
 	for _, e := range entries {
 		label := e.URL
-		dest, action, err := syncListEntry(client, e, baseDir, cwd, claimed, refresh, force)
+		dest, action, err := syncListEntry(s, e, claimed)
 		if dest != "" {
 			label = displayPath(cwd, dest)
 			claimed = append(claimed, dest)
 		}
-		switch {
-		case err != nil:
-			failed++
-			outf(stdout, "[failed]    line %d: %s: %v\n", e.Line, label, err)
-		case action == listInstall:
-			installed++
-			outf(stdout, "[installed] %s\n", label)
-		case action == listUpdate:
-			updated++
-			outf(stdout, "[updated]   %s\n", label)
-		case refresh:
-			current++
-			outf(stdout, "[current]   %s\n", label)
-		default:
-			current++
-			outf(stdout, "[present]   %s\n", label)
-		}
+		tally.record(stdout, e.Line, label, action, err)
 	}
+	return tally.summarize(stdout)
+}
 
-	outln(stdout, "\nSummary:")
-	outf(stdout, "  Installed:          %d\n", installed)
-	if refresh {
-		outf(stdout, "  Updated:            %d\n", updated)
-		outf(stdout, "  Already up to date: %d\n", current)
-	} else {
-		outf(stdout, "  Already present:    %d\n", current)
+// listTally counts the outcomes of a run over a list file.
+type listTally struct {
+	Refresh   bool // an update run ("update -F"): an entry left alone is current, not present
+	Installed int
+	Updated   int
+	Current   int
+	Failed    int
+}
+
+// record counts the outcome of syncing the entry at line and prints its line
+// of progress.
+func (t *listTally) record(stdout io.Writer, line int, label string, action listAction, err error) {
+	switch {
+	case err != nil:
+		t.Failed++
+		outf(stdout, "[failed]    line %d: %s: %v\n", line, label, err)
+	case action == listInstall:
+		t.Installed++
+		outf(stdout, "[installed] %s\n", label)
+	case action == listUpdate:
+		t.Updated++
+		outf(stdout, "[updated]   %s\n", label)
+	case t.Refresh:
+		t.Current++
+		outf(stdout, "[current]   %s\n", label)
+	default:
+		t.Current++
+		outf(stdout, "[present]   %s\n", label)
 	}
-	outf(stdout, "  Failed:             %d\n", failed)
-	if failed > 0 {
-		return fmt.Errorf("%d list entr%s %w", failed, plural(failed, "y", "ies"), ErrEntriesFailed)
+}
+
+// summarize prints the summary of the run and returns an error when any entry
+// failed.
+func (t *listTally) summarize(stdout io.Writer) error {
+	outln(stdout, "\nSummary:")
+	outf(stdout, "  Installed:          %d\n", t.Installed)
+	if t.Refresh {
+		outf(stdout, "  Updated:            %d\n", t.Updated)
+		outf(stdout, "  Already up to date: %d\n", t.Current)
+	} else {
+		outf(stdout, "  Already present:    %d\n", t.Current)
+	}
+	outf(stdout, "  Failed:             %d\n", t.Failed)
+	if t.Failed > 0 {
+		return fmt.Errorf("%d list entr%s %w", t.Failed, plural(t.Failed, "y", "ies"), ErrEntriesFailed)
 	}
 	return nil
 }
 
+// listSync is what syncing every entry of one list file shares.
+type listSync struct {
+	Client  *fetch.Client
+	BaseDir string // the list file's directory; relative destinations resolve against it
+	Cwd     string
+	Refresh bool // update existing entries too, not only download missing ones
+	Force   bool
+}
+
 // syncListEntry resolves one entry and brings its destination in line with it.
 // It returns the absolute destination as soon as it is known so the caller can
-// label output and detect overlapping entries.
+// label output and detect overlapping entries (claimed holds the destinations
+// of the entries before it).
 //
 // An entry already installed at its destination is recognized offline, so a
 // download run costs no request for it and an update run only re-checks the
 // installed ref's commit.
-func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, claimed []string, refresh, force bool) (string, listAction, error) {
-	partial, err := ghurl.Parse(e.URL)
+func syncListEntry(s listSync, e manifest.Entry, claimed []string) (string, listAction, error) {
+	src, dest, err := resolveListEntry(s, e)
 	if err != nil {
-		return "", 0, fmt.Errorf("parsing URL: %w", err)
+		return dest, 0, err
 	}
-
-	src, dest, known := installedSource(e, baseDir, !refresh)
-	switch {
-	case !known:
-		src, err = partial.Resolve(
-			client.CheckRef(partial.Owner, partial.Repo),
-			client.ListRefs(partial.Owner, partial.Repo),
-			func() (string, error) { return client.DefaultBranch(partial.Owner, partial.Repo) },
-		)
-		if err != nil {
-			return "", 0, fmt.Errorf("resolving URL: %w", err)
-		}
-		dest = entryDest(e, baseDir, src.Repo, src.Path)
-	case refresh:
-		sha, ok, refErr := client.CheckRef(src.Owner, src.Repo)(src.Ref)
-		if refErr != nil {
-			return dest, 0, fmt.Errorf("checking ref: %w", refErr)
-		}
-		if !ok {
-			return dest, 0, fmt.Errorf("%w: %s", ErrRefGone, src.Ref)
-		}
-		src = ghurl.Build(src.Owner, src.Repo, src.Ref, src.Path, sha)
-	}
-
-	if containsOrEqual(dest, baseDir) {
-		return dest, 0, ErrDestContainsList
-	}
-	if containsOrEqual(dest, cwd) {
-		return dest, 0, ErrDestContainsCwd
-	}
-	for _, other := range claimed {
-		if containsOrEqual(dest, other) || containsOrEqual(other, dest) {
-			return dest, 0, fmt.Errorf("%w (%s)", ErrDestOverlap, displayPath(cwd, other))
-		}
+	if err = checkListDest(dest, s.BaseDir, s.Cwd, claimed); err != nil {
+		return dest, 0, err
 	}
 
 	st, err := readDestState(dest)
 	if err != nil {
 		return dest, 0, err
 	}
-	action, err := planListEntry(st, src, refresh, force)
+	action, err := planListEntry(st, src, s.Refresh, s.Force)
 	if err != nil || action == listCurrent {
 		return dest, action, err
 	}
@@ -220,7 +222,7 @@ func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, 
 	if st.Managed {
 		mode = fetch.Sync
 	}
-	files, err := client.Materialize(src, dest, mode, st.Meta.Files, warn)
+	files, err := s.Client.Materialize(src, dest, mode, st.Meta.Files, warn)
 	if err != nil {
 		return dest, 0, fmt.Errorf("downloading: %w", err)
 	}
@@ -230,6 +232,58 @@ func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, 
 		return dest, 0, fmt.Errorf("recording the source: %w", err)
 	}
 	return dest, action, nil
+}
+
+// resolveListEntry returns the source entry e describes and its absolute
+// destination. An entry already installed is recognized offline; with refresh
+// its installed ref is re-checked for the current commit. The destination is
+// returned with an error once it is known.
+func resolveListEntry(s listSync, e manifest.Entry) (ghurl.Source, string, error) {
+	partial, err := ghurl.Parse(e.URL)
+	if err != nil {
+		return ghurl.Source{}, "", fmt.Errorf("parsing URL: %w", err)
+	}
+
+	src, dest, known := installedSource(e, s.BaseDir, !s.Refresh)
+	switch {
+	case !known:
+		src, err = partial.Resolve(
+			s.Client.CheckRef(partial.Owner, partial.Repo),
+			s.Client.ListRefs(partial.Owner, partial.Repo),
+			func() (string, error) { return s.Client.DefaultBranch(partial.Owner, partial.Repo) },
+		)
+		if err != nil {
+			return ghurl.Source{}, "", fmt.Errorf("resolving URL: %w", err)
+		}
+		dest = entryDest(e, s.BaseDir, src.Repo, src.Path)
+	case s.Refresh:
+		sha, ok, refErr := s.Client.CheckRef(src.Owner, src.Repo)(src.Ref)
+		if refErr != nil {
+			return ghurl.Source{}, dest, fmt.Errorf("checking ref: %w", refErr)
+		}
+		if !ok {
+			return ghurl.Source{}, dest, fmt.Errorf("%w: %s", ErrRefGone, src.Ref)
+		}
+		src = ghurl.Build(src.Owner, src.Repo, src.Ref, src.Path, sha)
+	}
+	return src, dest, nil
+}
+
+// checkListDest refuses a destination that would wipe the list file's
+// directory, the current directory, or the destination of another entry.
+func checkListDest(dest, baseDir, cwd string, claimed []string) error {
+	if containsOrEqual(dest, baseDir) {
+		return ErrDestContainsList
+	}
+	if containsOrEqual(dest, cwd) {
+		return ErrDestContainsCwd
+	}
+	for _, other := range claimed {
+		if containsOrEqual(dest, other) || containsOrEqual(other, dest) {
+			return fmt.Errorf("%w (%s)", ErrDestOverlap, displayPath(cwd, other))
+		}
+	}
+	return nil
 }
 
 // entryDest is the absolute destination of entry e for a source folder path in

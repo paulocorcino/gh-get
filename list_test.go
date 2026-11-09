@@ -76,7 +76,7 @@ func TestSyncListEntry_PresentEntryNeedsNoNetwork(t *testing.T) {
 	e := manifest.Entry{URL: "https://github.com/nobody-xyz/no-such-repo/tree/feature/x/skills/b", Dest: "vendor/b"}
 
 	// Any request for this fake repo would fail, so success proves none is made.
-	dest, action, err := syncListEntry(fetch.New("", nil), e, base, t.TempDir(), nil, false, false)
+	dest, action, err := syncListEntry(listSync{Client: fetch.New("", nil), BaseDir: base, Cwd: t.TempDir()}, e, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -135,23 +135,34 @@ func ensureOnPath(dir string, modifyPath bool, stdout io.Writer) error {
 	}
 
 	if runtime.GOOS == goosWindows {
-		if !modifyPath {
-			outln(stdout, "\n'"+dir+"' is not on your PATH yet; add it to your user PATH.")
-			return nil
-		}
-		added, err := addToWindowsUserPath(dir)
-		if err != nil {
-			return err
-		}
-		if added {
-			outln(stdout, "\nAdded '"+dir+"' to your user PATH.")
-		} else {
-			outln(stdout, "\n'"+dir+"' is already on your user PATH.")
-		}
-		outln(stdout, "Open a NEW terminal, then run: gh-get --version")
+		return ensureOnWindowsPath(dir, modifyPath, stdout)
+	}
+	return ensureInProfile(dir, modifyPath, stdout)
+}
+
+// ensureOnWindowsPath adds dir to the Windows user PATH, or with modifyPath
+// false only says to.
+func ensureOnWindowsPath(dir string, modifyPath bool, stdout io.Writer) error {
+	if !modifyPath {
+		outln(stdout, "\n'"+dir+"' is not on your PATH yet; add it to your user PATH.")
 		return nil
 	}
+	added, err := addToWindowsUserPath(dir)
+	if err != nil {
+		return err
+	}
+	if added {
+		outln(stdout, "\nAdded '"+dir+"' to your user PATH.")
+	} else {
+		outln(stdout, "\n'"+dir+"' is already on your user PATH.")
+	}
+	outln(stdout, "Open a NEW terminal, then run: gh-get --version")
+	return nil
+}
 
+// ensureInProfile appends a line that puts dir on PATH to the profile of the
+// user's shell, or with modifyPath false only prints the line to add.
+func ensureInProfile(dir string, modifyPath bool, stdout io.Writer) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("finding the home directory: %w", err)
