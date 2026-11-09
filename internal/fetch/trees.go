@@ -91,10 +91,7 @@ func (c *Client) downloadViaTrees(src ghurl.Source, entries []treeEntry, destDir
 // writeBlob fetches the blob of e from raw.githubusercontent and writes it at
 // rel under destDir, as a symlink when its mode says so.
 func (c *Client) writeBlob(src ghurl.Source, e treeEntry, destDir, rel string, warn func(string)) error {
-	rawURL := fmt.Sprintf("%s/%s/%s/%s/%s",
-		rawBase, src.Owner, src.Repo, url.PathEscape(src.Commit), escapePath(e.Path))
-
-	data, err := c.get(rawURL, "")
+	data, err := c.rawContent(src, e.Path)
 	if err != nil {
 		return err // includes rateLimitError for fallback
 	}
