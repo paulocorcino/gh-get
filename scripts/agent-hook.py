@@ -10,12 +10,13 @@ Reads the hook event as JSON on stdin. The full gate stays scripts/check.sh.
 
 import json
 import os
+import pathlib
 import re
 import shlex
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = str(pathlib.Path(__file__).resolve().parent.parent)
 GATE_FILES = (
     ".golangci.yml",
     "scripts/check.sh",
@@ -43,7 +44,10 @@ def bypasses(cmd):
             continue
         if "--no-verify" in words or "--no-gpg-sign" in words:
             return True
-        if "push" in words and (any(w in FORCE or w.startswith("--force-with-lease=") for w in words) or any(w.startswith("+") and len(w) > 1 for w in words)):
+        if "push" in words and (
+            any(w in FORCE or w.startswith("--force-with-lease=") for w in words)
+            or any(w.startswith("+") and len(w) > 1 for w in words)
+        ):
             return True
     return False
 
@@ -69,14 +73,17 @@ def pre_bash(event):
 def pre_edit(event):
     path = rel(event.get("tool_input", {}).get("file_path", ""))
     if any(path == g or (g.endswith("/") and path.startswith(g)) for g in GATE_FILES):
-        decide("ask", f"{path} defines the gate: it changes only when the task is about the gate, and a count only goes down.")
+        decide(
+            "ask",
+            f"{path} defines the gate: it changes only when the task is about the gate, and a count only goes down.",
+        )
 
 
 def lint_command():
     if os.environ.get("GOLANGCI_LINT"):
         return shlex.split(os.environ["GOLANGCI_LINT"])
-    with open(os.path.join(ROOT, "scripts", "check.sh"), encoding="utf-8") as f:
-        version = re.search(r"^GOLANGCI_LINT_VERSION=(\S+)", f.read(), re.M).group(1)
+    text = (pathlib.Path(ROOT) / "scripts" / "check.sh").read_text(encoding="utf-8")
+    version = re.search(r"^GOLANGCI_LINT_VERSION=(\S+)", text, re.MULTILINE).group(1)
     return ["go", "run", f"github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{version}"]
 
 
@@ -84,15 +91,19 @@ def post_edit(event):
     path = event.get("tool_input", {}).get("file_path", "")
     if not path.endswith(".go"):
         return 0
-    pkg = "./" + (os.path.dirname(rel(path)) or ".")
+    parent = pathlib.PurePosixPath(rel(path)).parent.as_posix()
+    pkg = "./" + ("" if parent == "." else parent)
     gl = lint_command()
     problems = []
     for args in (["fmt", "--diff", rel(path)], ["run", pkg]):
-        r = subprocess.run(gl + args, cwd=ROOT, capture_output=True, text=True, check=False)
+        r = subprocess.run(gl + args, cwd=ROOT, capture_output=True, text=True, check=False)  # noqa: S603 - fixed argv, no shell
         if r.returncode != 0:
             problems.append(f"$ golangci-lint {' '.join(args)}\n{r.stdout}{r.stderr}".strip())
     if problems:
-        print("\n\n".join(problems) + "\n\nFix the cause (see AGENTS.md); run scripts/check.sh before you say done.", file=sys.stderr)
+        print(
+            "\n\n".join(problems) + "\n\nFix the cause (see AGENTS.md); run scripts/check.sh before you say done.",
+            file=sys.stderr,
+        )
         return 2
     return 0
 
