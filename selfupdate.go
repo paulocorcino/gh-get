@@ -25,8 +25,6 @@ import (
 // by the REST API, so it does not consume the API rate limit.
 var releasesURL = "https://github.com/paulocorcino/gh-get/releases" //nolint:gochecknoglobals // test seam: tests point it at a local server
 
-// maxReleaseAsset caps a downloaded release file, guarding against a runaway
-// response (binaries are a few MB).
 // Errors of --self-update; each prints exactly its text.
 var (
 	ErrDevBuild         = errors.New("this is a development build")
@@ -37,6 +35,8 @@ var (
 	ErrNoChecksum       = errors.New("no checksum")
 )
 
+// maxReleaseAsset caps a downloaded release file, guarding against a runaway
+// response (binaries are a few MB).
 const maxReleaseAsset = 200 << 20
 
 // runSelfUpdate replaces the running executable with the latest release.

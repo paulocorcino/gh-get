@@ -715,6 +715,18 @@ downloads the folder (needs network).
 ## End-to-end summary (parent fills after final stage)
 | Stage | Title | Tier | Effort | Model used | Checks proven | Commit SHA | Status | Report |
 |-------|-------|------|--------|------------|---------------|------------|--------|--------|
+| 1 | Turn on depguard (D4) and the per-linter probe | mechanical | minimal | haiku | 3/3 | 8924a9f | green | docs/plans/lint-debt-paydown-stage-1-report.md |
+| 2 | Mechanical fixes by command | mechanical | minimal | haiku | 6/6 | 8be68b5 | green | docs/plans/lint-debt-paydown-stage-2-report.md |
+| 3 | Surface fixes by hand | standard | standard | sonnet | 7/7 | 62e69cc | green | docs/plans/lint-debt-paydown-stage-3-report.md |
+| 4 | Dropped values in internal packages | standard | standard | sonnet | 5/5 | 25b1f05 | green | docs/plans/lint-debt-paydown-stage-4-report.md |
+| 5 | Dropped values in the root package, flip | standard | standard | sonnet | 6/6 | 1353014 | green | docs/plans/lint-debt-paydown-stage-5-report.md |
+| 6 | Output through writers (forbidigo) | judgment | extended | opus | 5/5 | b8959b4 | green | docs/plans/lint-debt-paydown-stage-6-report.md |
+| 7 | Escape hatches and local rules | standard | standard | sonnet | 8/8 | 14fc2df | green | docs/plans/lint-debt-paydown-stage-7-report.md |
+| 8 | Capability rules (gosec) and goconst | judgment | extended | opus | 6/6 | 7e83ed6 | green | docs/plans/lint-debt-paydown-stage-8-report.md |
+| 9 | Shape: root package complexity | judgment | extended | opus | 6/6 | 81edb4c | green | docs/plans/lint-debt-paydown-stage-9-report.md |
+| 10 | Shape: internal packages, close the debt list | judgment | extended | opus | 6/6 | 9ed38bc | green | docs/plans/lint-debt-paydown-stage-10-report.md |
+
+Reviewer (light): pass with notes, no must-fix. Closing commit also fixed two cosmetic notes (doc comment of `maxReleaseAsset`, duplicated URL in the request error).
 <!-- one row per stage. `Model used` is what the executor actually selected
 on its platform for the declared Tier/Effort (the executor fills this — the
 plan never prescribes model names). Used post-hoc to audit whether the

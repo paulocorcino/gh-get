@@ -166,7 +166,7 @@ func (c *Client) send(rawurl string, header func(http.Header)) (*http.Response, 
 	resp, err := c.http.Do(req)
 	if err != nil {
 		cancel(nil)
-		return nil, fmt.Errorf("requesting %s: %w", rawurl, err)
+		return nil, fmt.Errorf("requesting: %w", err)
 	}
 	resp.Body = newStallBody(ctx, resp.Body, c.stall, cancel)
 	return resp, nil
