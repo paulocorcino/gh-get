@@ -92,7 +92,7 @@ func TestRunFreeze_CreatesThenKeepsListFile(t *testing.T) {
 	if err := runFreeze(list); err != nil {
 		t.Fatal(err)
 	}
-	second, _ := os.ReadFile(list)
+	second := mustRead(t, list)
 	if string(first) != string(second) {
 		t.Fatalf("second freeze changed the file:\n%s", second)
 	}

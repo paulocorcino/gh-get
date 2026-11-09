@@ -153,6 +153,9 @@ func defaultDestName(m meta.Meta) string {
 	return m.Repo
 }
 
+// ErrFoldersUnread ends a freeze that could not read some folders.
+var ErrFoldersUnread = errors.New("folder(s) could not be read")
+
 const freezeHeader = `# gh-get list: one GitHub URL per line, optionally followed by a destination
 # (relative to this file). "gh-get update" re-syncs everything listed here.
 `
@@ -162,7 +165,7 @@ const freezeHeader = `# gh-get list: one GitHub URL per line, optionally followe
 func runFreeze(listPath string) error {
 	absList, err := filepath.Abs(listPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolving the list file: %w", err)
 	}
 	baseDir := filepath.Dir(absList)
 
@@ -174,7 +177,7 @@ func runFreeze(listPath string) error {
 	case errors.Is(err, os.ErrNotExist):
 		lines = strings.Split(strings.TrimSuffix(freezeHeader, "\n"), "\n")
 	case err != nil:
-		return err
+		return fmt.Errorf("reading the list file: %w", err)
 	default:
 		text := strings.TrimSuffix(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 		if text != "" {
@@ -204,7 +207,7 @@ func runFreeze(listPath string) error {
 		}
 		m, err := meta.Read(dir)
 		if err == nil && (m.Owner == "" || m.Repo == "" || m.Branch == "") {
-			err = fmt.Errorf("invalid %s: owner, repo, and branch are required", meta.FileName)
+			err = ErrInvalidMarker
 		}
 		if err != nil {
 			failed++
@@ -234,7 +237,7 @@ func runFreeze(listPath string) error {
 
 	if added+changed > 0 || !exists {
 		if err := os.WriteFile(absList, []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil {
-			return err
+			return fmt.Errorf("writing the list file: %w", err)
 		}
 		fmt.Printf("\nWrote %s\n", absList)
 	} else {
@@ -246,7 +249,7 @@ func runFreeze(listPath string) error {
 	fmt.Printf("  Already listed: %d\n", kept)
 	fmt.Printf("  Failed:         %d\n", failed)
 	if failed > 0 {
-		return fmt.Errorf("%d folder(s) could not be read", failed)
+		return fmt.Errorf("%d %w", failed, ErrFoldersUnread)
 	}
 	return nil
 }

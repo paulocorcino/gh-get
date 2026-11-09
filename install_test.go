@@ -55,7 +55,7 @@ func TestAddToProfile_AppendsOnce(t *testing.T) {
 		t.Fatalf("second add: added=%v err=%v, want no-op", added, err)
 	}
 
-	got, _ := os.ReadFile(file)
+	got := mustRead(t, file)
 	want := "alias ll='ls -l'\n\n" + profileMarker + "\nexport PATH=x\n"
 	if string(got) != want {
 		t.Fatalf("profile =\n%q\nwant\n%q", got, want)
@@ -67,7 +67,7 @@ func TestAddToProfile_CreatesMissingFile(t *testing.T) {
 	if added, err := addToProfile(profileEdit{File: file, Line: "set -gx PATH x $PATH"}); err != nil || !added {
 		t.Fatalf("added=%v err=%v", added, err)
 	}
-	if got, _ := os.ReadFile(file); !strings.Contains(string(got), "set -gx PATH x $PATH") {
+	if got := mustRead(t, file); !strings.Contains(string(got), "set -gx PATH x $PATH") {
 		t.Fatalf("file = %q", got)
 	}
 }

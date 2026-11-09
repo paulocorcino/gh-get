@@ -24,6 +24,26 @@ import (
 // version is injected at build time via -ldflags "-X main.version=vX.Y.Z".
 var version = "dev"
 
+// Usage errors of the command line; each prints exactly its text.
+var (
+	ErrInstallArgs         = errors.New("--install only accepts --no-modify-path")
+	ErrSelfUpdateArgs      = errors.New("--self-update only accepts --force")
+	ErrTokenValue          = errors.New("--token requires a value")
+	ErrMissingValue        = errors.New("requires a value")
+	ErrUnknownOption       = errors.New("unknown option")
+	ErrUnexpectedArg       = errors.New("unexpected argument")
+	ErrFreezeArgs          = errors.New("freeze only accepts --file")
+	ErrRecursiveRef        = errors.New("--recursive cannot be combined with --ref or --branch")
+	ErrFileCombined        = errors.New("--file cannot be combined with --recursive, --ref or --branch")
+	ErrRecursiveUpdateOnly = errors.New("--recursive is only valid with update")
+	ErrFileRef             = errors.New("--file cannot be combined with --ref or --branch (put the ref in each URL)")
+	ErrMissingURL          = errors.New("missing GitHub URL")
+	ErrRefNotFound         = errors.New("ref not found")
+	ErrRefGone             = errors.New("ref no longer exists")
+	ErrRecursiveFailed     = errors.New("recursive update operation(s) failed")
+	ErrInvalidMarker       = errors.New("invalid " + meta.FileName + ": owner, repo, and branch are required")
+)
+
 const usage = `gh-get - download a folder (or a whole repo) from GitHub
 
 Usage:
@@ -124,7 +144,7 @@ func run(args []string) error {
 		modifyPath := true
 		for _, a := range args[1:] {
 			if a != "--no-modify-path" {
-				return errors.New("--install only accepts --no-modify-path")
+				return ErrInstallArgs
 			}
 			modifyPath = false
 		}
@@ -133,7 +153,7 @@ func run(args []string) error {
 		force := false
 		for _, a := range args[1:] {
 			if a != "-f" && a != "--force" {
-				return errors.New("--self-update only accepts --force")
+				return ErrSelfUpdateArgs
 			}
 			force = true
 		}
@@ -157,7 +177,7 @@ func run(args []string) error {
 			recursive = true
 		case a == "--token":
 			if i+1 >= len(args) {
-				return errors.New("--token requires a value")
+				return ErrTokenValue
 			}
 			i++
 			tokenFlag = args[i]
@@ -165,13 +185,13 @@ func run(args []string) error {
 			tokenFlag = strings.TrimPrefix(a, "--token=")
 		case a == "--ref" || a == "--branch":
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a value", a)
+				return fmt.Errorf("%s %w", a, ErrMissingValue)
 			}
 			i++
 			refFlag = args[i]
 		case a == "-F" || a == "--file":
 			if i+1 >= len(args) {
-				return fmt.Errorf("%s requires a value", a)
+				return fmt.Errorf("%s %w", a, ErrMissingValue)
 			}
 			i++
 			listFile = args[i]
@@ -182,7 +202,7 @@ func run(args []string) error {
 		case strings.HasPrefix(a, "--branch="):
 			refFlag = strings.TrimPrefix(a, "--branch=")
 		case strings.HasPrefix(a, "-"):
-			return fmt.Errorf("unknown option: %s", a)
+			return fmt.Errorf("%w: %s", ErrUnknownOption, a)
 		default:
 			positional = append(positional, a)
 		}
@@ -190,10 +210,10 @@ func run(args []string) error {
 
 	if len(positional) > 0 && positional[0] == "freeze" {
 		if len(positional) > 1 {
-			return fmt.Errorf("unexpected argument: %s", positional[1])
+			return fmt.Errorf("%w: %s", ErrUnexpectedArg, positional[1])
 		}
 		if force || recursive || refFlag != "" {
-			return errors.New("freeze only accepts --file")
+			return ErrFreezeArgs
 		}
 		if listFile == "" {
 			listFile = manifest.DefaultFile
@@ -202,13 +222,13 @@ func run(args []string) error {
 	}
 	if len(positional) > 0 && positional[0] == "update" {
 		if len(positional) > 1 {
-			return fmt.Errorf("unexpected argument: %s", positional[1])
+			return fmt.Errorf("%w: %s", ErrUnexpectedArg, positional[1])
 		}
 		if recursive && refFlag != "" {
-			return errors.New("--recursive cannot be combined with --ref or --branch")
+			return ErrRecursiveRef
 		}
 		if listFile != "" && (recursive || refFlag != "") {
-			return errors.New("--file cannot be combined with --recursive, --ref or --branch")
+			return ErrFileCombined
 		}
 		token := resolveToken(tokenFlag)
 		if listFile != "" {
@@ -220,24 +240,24 @@ func run(args []string) error {
 		return runUpdate(token, refFlag)
 	}
 	if recursive {
-		return errors.New("--recursive is only valid with update")
+		return ErrRecursiveUpdateOnly
 	}
 	if listFile != "" {
 		if len(positional) > 0 {
-			return fmt.Errorf("unexpected argument with --file: %s", positional[0])
+			return fmt.Errorf("%w with --file: %s", ErrUnexpectedArg, positional[0])
 		}
 		if refFlag != "" {
-			return errors.New("--file cannot be combined with --ref or --branch (put the ref in each URL)")
+			return ErrFileRef
 		}
 		return runList(listFile, resolveToken(tokenFlag), false, force)
 	}
 
 	if len(positional) == 0 {
 		fmt.Print(usage)
-		return errors.New("missing GitHub URL")
+		return ErrMissingURL
 	}
 	if len(positional) > 2 {
-		return fmt.Errorf("unexpected argument: %s", positional[2])
+		return fmt.Errorf("%w: %s", ErrUnexpectedArg, positional[2])
 	}
 	token := resolveToken(tokenFlag)
 
@@ -254,7 +274,7 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 
 	partial, err := ghurl.Parse(url)
 	if err != nil {
-		return err
+		return fmt.Errorf("parsing URL: %w", err)
 	}
 	src, err := partial.Resolve(
 		client.CheckRef(partial.Owner, partial.Repo),
@@ -262,7 +282,7 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 		func() (string, error) { return client.DefaultBranch(partial.Owner, partial.Repo) },
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolving URL: %w", err)
 	}
 
 	// --ref takes precedence over the branch embedded in the URL. The URL's ref
@@ -273,7 +293,7 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("ref not found: %s", refOverride)
+			return fmt.Errorf("%w: %s", ErrRefNotFound, refOverride)
 		}
 		src = ghurl.Build(src.Owner, src.Repo, refOverride, src.Path, sha)
 	}
@@ -290,11 +310,11 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 	// pure policy in internal/dest; only the existence check touches the disk.
 	abs, err := filepath.Abs(dest)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolving destination: %w", err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return fmt.Errorf("reading the current directory: %w", err)
 	}
 	_, statErr := os.Lstat(dest)
 	exists := statErr == nil
@@ -303,7 +323,7 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 	mode := fetch.Replace
 	switch plan.Action {
 	case destpolicy.Refuse:
-		return fmt.Errorf("%s", plan.Reason)
+		return errors.New(plan.Reason) //nolint:err113 // the destination policy owns this message; callers only print it
 	case destpolicy.WriteInPlace:
 		mode = fetch.Merge
 	}
@@ -324,12 +344,12 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 
 	files, err := client.Materialize(src, dest, mode, nil, warn)
 	if err != nil {
-		return err
+		return fmt.Errorf("downloading: %w", err)
 	}
 	m := metaFrom(src)
 	m.Files = files
 	if err := meta.Write(dest, m); err != nil {
-		return err
+		return fmt.Errorf("recording the source: %w", err)
 	}
 
 	fmt.Println("Done:")
@@ -340,12 +360,12 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 func runUpdate(token, refOverride string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return fmt.Errorf("reading the current directory: %w", err)
 	}
 	// A plain "update" in a directory that is not itself a gh-get folder but
 	// holds a list file updates the list instead.
 	if refOverride == "" {
-		if _, err := meta.Read(cwd); os.IsNotExist(err) {
+		if _, err := meta.Read(cwd); errors.Is(err, fs.ErrNotExist) {
 			if _, err := os.Stat(manifest.DefaultFile); err == nil {
 				return runList(manifest.DefaultFile, token, true, false)
 			}
@@ -369,17 +389,17 @@ const (
 func updateAt(client *fetch.Client, dir, refOverride string, verbose bool) (updateStatus, error) {
 	m, err := meta.Read(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			// Not a gh-get folder; nothing to do (parity with original).
 			return updateNotManaged, nil
 		}
-		return updateNotManaged, err
+		return updateNotManaged, fmt.Errorf("reading the source marker: %w", err)
 	}
 	if m.SourceURL == "" {
 		return updateNotManaged, nil
 	}
 	if m.Owner == "" || m.Repo == "" || m.Branch == "" {
-		return updateNotManaged, fmt.Errorf("invalid %s: owner, repo, and branch are required", meta.FileName)
+		return updateNotManaged, ErrInvalidMarker
 	}
 
 	// --ref switches the folder to a different branch/tag; otherwise stay on the
@@ -391,10 +411,10 @@ func updateAt(client *fetch.Client, dir, refOverride string, verbose bool) (upda
 
 	sha, ok, err := client.CheckRef(m.Owner, m.Repo)(ref)
 	if err != nil {
-		return updateNotManaged, err
+		return updateNotManaged, fmt.Errorf("checking ref: %w", err)
 	}
 	if !ok {
-		return updateNotManaged, fmt.Errorf("ref no longer exists: %s", ref)
+		return updateNotManaged, fmt.Errorf("%w: %s", ErrRefGone, ref)
 	}
 	// Short-circuit only when staying on the same ref at the same commit.
 	if ref == m.Branch && sha == m.Commit && m.Commit != "" {
@@ -417,12 +437,12 @@ func updateAt(client *fetch.Client, dir, refOverride string, verbose bool) (upda
 	// unrelated content sharing the folder is kept.
 	files, err := client.Materialize(src, dir, fetch.Sync, m.Files, warn)
 	if err != nil {
-		return updateNotManaged, err
+		return updateNotManaged, fmt.Errorf("updating: %w", err)
 	}
 	nm := metaFrom(src)
 	nm.Files = files
 	if err := meta.Write(dir, nm); err != nil {
-		return updateNotManaged, err
+		return updateNotManaged, fmt.Errorf("recording the source: %w", err)
 	}
 
 	if verbose {
@@ -448,7 +468,7 @@ type recursiveDiscovery struct {
 func discoverRecursive(root string) recursiveDiscovery {
 	var found []string
 	var scanErrors []pathError
-	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			scanErrors = append(scanErrors, pathError{Path: path, Err: err})
 			if entry != nil && entry.IsDir() {
@@ -461,6 +481,9 @@ func discoverRecursive(root string) recursiveDiscovery {
 		}
 		return nil
 	})
+	if walkErr != nil {
+		scanErrors = append(scanErrors, pathError{Path: root, Err: walkErr})
+	}
 
 	sort.Slice(found, func(i, j int) bool {
 		di, dj := pathDepth(root, found[i]), pathDepth(root, found[j])
@@ -527,7 +550,7 @@ func updateAll(paths []string, updater func(string) (updateStatus, error)) []upd
 func runRecursiveUpdate(token string) error {
 	root, err := os.Getwd()
 	if err != nil {
-		return err
+		return fmt.Errorf("reading the current directory: %w", err)
 	}
 
 	fmt.Println("Searching for gh-get installations under:")
@@ -573,7 +596,7 @@ func runRecursiveUpdate(token string) error {
 	fmt.Printf("  Skipped:            %d\n", summary.Skipped)
 	fmt.Printf("  Failed:             %d\n", summary.Failed)
 	if summary.Failed > 0 {
-		return fmt.Errorf("%d recursive update operation(s) failed", summary.Failed)
+		return fmt.Errorf("%d %w", summary.Failed, ErrRecursiveFailed)
 	}
 	return nil
 }

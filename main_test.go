@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,6 +13,25 @@ import (
 	"github.com/paulocorcino/gh-get/internal/ghurl"
 	"github.com/paulocorcino/gh-get/internal/meta"
 )
+
+// mustRead returns the file's content, failing the test when it cannot be read.
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// writeBody writes body to w. It runs on a server goroutine, so a failure is
+// reported with t.Error, not t.Fatal.
+func writeBody(t *testing.T, w io.Writer, body string) {
+	t.Helper()
+	if _, err := w.Write([]byte(body)); err != nil {
+		t.Error(err)
+	}
+}
 
 func putMarker(t *testing.T, dir string) {
 	t.Helper()

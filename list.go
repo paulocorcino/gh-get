@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,15 @@ const (
 	listInstall listAction = iota // destination absent (or --force): download
 	listUpdate                    // same source, different ref/commit: re-download
 	listCurrent                   // nothing to do
+)
+
+// Errors of syncing one list entry; each prints exactly its text.
+var (
+	ErrUseForce         = errors.New("use --force to replace it")
+	ErrEntriesFailed    = errors.New("failed")
+	ErrDestContainsList = errors.New("destination contains the list file's directory")
+	ErrDestContainsCwd  = errors.New("destination contains the current directory")
+	ErrDestOverlap      = errors.New("destination overlaps another entry")
 )
 
 // destState describes what is on disk at an entry's destination.
@@ -45,9 +55,9 @@ func planListEntry(st destState, src ghurl.Source, refresh, force bool) (listAct
 	case force:
 		return listInstall, nil
 	case st.Managed:
-		return 0, fmt.Errorf("destination holds a different gh-get download (%s); use --force to replace it", st.Meta.SourceURL)
+		return 0, fmt.Errorf("destination holds a different gh-get download (%s); %w", st.Meta.SourceURL, ErrUseForce)
 	default:
-		return 0, errors.New("destination exists and was not downloaded by gh-get; use --force to replace it")
+		return 0, fmt.Errorf("destination exists and was not downloaded by gh-get; %w", ErrUseForce)
 	}
 }
 
@@ -71,15 +81,15 @@ func containsOrEqual(parent, child string) bool {
 func runList(listPath, token string, refresh, force bool) error {
 	absList, err := filepath.Abs(listPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolving the list file: %w", err)
 	}
 	entries, err := manifest.Load(absList)
 	if err != nil {
-		return err
+		return fmt.Errorf("loading the list file: %w", err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
-		return err
+		return fmt.Errorf("reading the current directory: %w", err)
 	}
 	baseDir := filepath.Dir(absList)
 
@@ -131,7 +141,7 @@ func runList(listPath, token string, refresh, force bool) error {
 	}
 	fmt.Printf("  Failed:             %d\n", failed)
 	if failed > 0 {
-		return fmt.Errorf("%d list entr%s failed", failed, plural(failed, "y", "ies"))
+		return fmt.Errorf("%d list entr%s %w", failed, plural(failed, "y", "ies"), ErrEntriesFailed)
 	}
 	return nil
 }
@@ -146,7 +156,7 @@ func runList(listPath, token string, refresh, force bool) error {
 func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, claimed []string, refresh, force bool) (string, listAction, error) {
 	partial, err := ghurl.Parse(e.URL)
 	if err != nil {
-		return "", 0, err
+		return "", 0, fmt.Errorf("parsing URL: %w", err)
 	}
 
 	src, dest, known := installedSource(e, baseDir, !refresh)
@@ -158,29 +168,29 @@ func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, 
 			func() (string, error) { return client.DefaultBranch(partial.Owner, partial.Repo) },
 		)
 		if err != nil {
-			return "", 0, err
+			return "", 0, fmt.Errorf("resolving URL: %w", err)
 		}
 		dest = entryDest(e, baseDir, src.Repo, src.Path)
 	case refresh:
 		sha, ok, err := client.CheckRef(src.Owner, src.Repo)(src.Ref)
 		if err != nil {
-			return dest, 0, err
+			return dest, 0, fmt.Errorf("checking ref: %w", err)
 		}
 		if !ok {
-			return dest, 0, fmt.Errorf("ref no longer exists: %s", src.Ref)
+			return dest, 0, fmt.Errorf("%w: %s", ErrRefGone, src.Ref)
 		}
 		src = ghurl.Build(src.Owner, src.Repo, src.Ref, src.Path, sha)
 	}
 
 	if containsOrEqual(dest, baseDir) {
-		return dest, 0, errors.New("destination contains the list file's directory")
+		return dest, 0, ErrDestContainsList
 	}
 	if containsOrEqual(dest, cwd) {
-		return dest, 0, errors.New("destination contains the current directory")
+		return dest, 0, ErrDestContainsCwd
 	}
 	for _, other := range claimed {
 		if containsOrEqual(dest, other) || containsOrEqual(other, dest) {
-			return dest, 0, fmt.Errorf("destination overlaps another entry (%s)", displayPath(cwd, other))
+			return dest, 0, fmt.Errorf("%w (%s)", ErrDestOverlap, displayPath(cwd, other))
 		}
 	}
 
@@ -201,12 +211,12 @@ func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, 
 	}
 	files, err := client.Materialize(src, dest, mode, st.Meta.Files, warn)
 	if err != nil {
-		return dest, 0, err
+		return dest, 0, fmt.Errorf("downloading: %w", err)
 	}
 	m := metaFrom(src)
 	m.Files = files
 	if err := meta.Write(dest, m); err != nil {
-		return dest, 0, err
+		return dest, 0, fmt.Errorf("recording the source: %w", err)
 	}
 	return dest, action, nil
 }
@@ -256,21 +266,21 @@ func installedSource(e manifest.Entry, baseDir string, allowBare bool) (ghurl.So
 
 func readDestState(dest string) (destState, error) {
 	info, err := os.Lstat(dest)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return destState{}, nil
 	}
 	if err != nil {
-		return destState{}, err
+		return destState{}, fmt.Errorf("inspecting %s: %w", dest, err)
 	}
 	if !info.IsDir() {
 		return destState{Exists: true}, nil
 	}
 	m, err := meta.Read(dest)
-	if os.IsNotExist(err) || (err == nil && m.SourceURL == "") {
+	if errors.Is(err, fs.ErrNotExist) || (err == nil && m.SourceURL == "") {
 		return destState{Exists: true}, nil
 	}
 	if err != nil {
-		return destState{}, err
+		return destState{}, fmt.Errorf("reading the source marker: %w", err)
 	}
 	return destState{Exists: true, Managed: true, Meta: m}, nil
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,23 +12,39 @@ import (
 	"strings"
 )
 
+// ErrNoLocalAppData is returned by --install on Windows without %LOCALAPPDATA%.
+var ErrNoLocalAppData = errors.New("LOCALAPPDATA is not set")
+
 // copyFile copies src to dst with the given mode, creating parent directories.
 func copyFile(src, dst string, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+		return fmt.Errorf("creating the directory: %w", err)
 	}
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("opening the source: %w", err)
 	}
-	defer in.Close()
+	defer closeOrWarn(in)
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
-		return err
+		return fmt.Errorf("opening the destination: %w", err)
 	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
+	if _, err = io.Copy(out, in); err != nil {
+		closeOrWarn(out)
+		return fmt.Errorf("copying: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("closing the destination: %w", err)
+	}
+	return nil
+}
+
+// closeOrWarn closes c where the caller has nothing left to return: a file only
+// read from, or one already failing with a more useful error.
+func closeOrWarn(c io.Closer) {
+	if err := c.Close(); err != nil {
+		warn("closing file: " + err.Error())
+	}
 }
 
 // installDir returns the per-user directory gh-get installs itself into. None of
@@ -36,13 +53,13 @@ func installDir() (string, error) {
 	if runtime.GOOS == "windows" {
 		base := os.Getenv("LOCALAPPDATA")
 		if base == "" {
-			return "", errors.New("LOCALAPPDATA is not set")
+			return "", ErrNoLocalAppData
 		}
 		return filepath.Join(base, "Programs", "gh-get"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("finding the home directory: %w", err)
 	}
 	return filepath.Join(home, ".local", "bin"), nil
 }
@@ -61,7 +78,7 @@ func installBinName() string {
 func runInstall(modifyPath bool) error {
 	exe, err := os.Executable()
 	if err != nil {
-		return err
+		return fmt.Errorf("finding the running binary: %w", err)
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
@@ -78,7 +95,7 @@ func runInstall(modifyPath bool) error {
 		fmt.Println("  " + dest)
 	} else {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
+			return fmt.Errorf("creating %s: %w", dir, err)
 		}
 		if err := copyFile(exe, dest, 0o755); err != nil {
 			return fmt.Errorf("copying binary to %s: %w", dest, err)
@@ -132,7 +149,7 @@ func ensureOnPath(dir string, modifyPath bool) error {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return fmt.Errorf("finding the home directory: %w", err)
 	}
 	prof := shellProfile(os.Getenv("SHELL"), home, os.Getenv("ZDOTDIR"), runtime.GOOS, dir)
 	if !modifyPath {
@@ -197,28 +214,31 @@ func shellProfile(shell, home, zdotdir, goos, dir string) profileEdit {
 // needed. It reports false when an earlier --install already added it.
 func addToProfile(p profileEdit) (bool, error) {
 	existing, err := os.ReadFile(p.File)
-	if err != nil && !os.IsNotExist(err) {
-		return false, err
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("reading %s: %w", p.File, err)
 	}
 	if strings.Contains(string(existing), profileMarker) {
 		return false, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(p.File), 0o755); err != nil {
-		return false, err
+		return false, fmt.Errorf("creating the directory: %w", err)
 	}
 	f, err := os.OpenFile(p.File, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("opening the profile: %w", err)
 	}
 	block := "\n" + profileMarker + "\n" + p.Line + "\n"
 	if len(existing) > 0 && !strings.HasSuffix(string(existing), "\n") {
 		block = "\n" + block
 	}
 	if _, err := f.WriteString(block); err != nil {
-		f.Close()
-		return false, err
+		closeOrWarn(f)
+		return false, fmt.Errorf("writing the profile: %w", err)
 	}
-	return true, f.Close()
+	if err := f.Close(); err != nil {
+		return false, fmt.Errorf("closing the profile: %w", err)
+	}
+	return true, nil
 }
 
 // shQuote single-quotes s for POSIX shells and fish.

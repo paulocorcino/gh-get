@@ -48,7 +48,7 @@ func writeSymlink(dest, target string, warn func(string)) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("creating directory for %s: %w", dest, err)
 	}
-	os.Remove(dest) //nolint:errcheck // a missing or undeletable stale entry surfaces at Symlink or WriteFile below
+	os.Remove(dest) //nolint:errcheck,gosec // a missing or undeletable stale entry surfaces at Symlink or WriteFile below
 	if err := os.Symlink(target, dest); err != nil {
 		if warn != nil {
 			warn(fmt.Sprintf("symlink not supported, wrote plain file: %s -> %s", dest, target))

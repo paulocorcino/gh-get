@@ -35,8 +35,7 @@ type Meta struct {
 func Read(dir string) (Meta, error) {
 	f, err := os.Open(filepath.Join(dir, FileName))
 	if err != nil {
-		// Unwrapped on purpose: callers test it with os.IsNotExist, which does not unwrap.
-		return Meta{}, err //nolint:wrapcheck // os.IsNotExist at the call sites does not unwrap
+		return Meta{}, fmt.Errorf("opening marker: %w", err)
 	}
 	m, err := parse(f)
 	if cerr := f.Close(); cerr != nil && err == nil {

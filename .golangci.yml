@@ -50,12 +50,6 @@ linters:
     - wsl_v5
     # debt: 79 sites
     - forbidigo
-    # debt: 77 sites
-    - wrapcheck
-    # debt: 56 sites
-    - err113
-    # debt: 56 sites
-    - errcheck
     # debt: 28 sites
     - goconst
     # debt: 24 sites
@@ -113,8 +107,6 @@ linters:
         - badCall
     gosec:
       excludes:
-        # debt: 17 sites
-        - G104
         # debt: 15 sites
         - G304
         # debt: 5 sites
