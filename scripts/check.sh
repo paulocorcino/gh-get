@@ -95,6 +95,21 @@ docs() {
   npx --yes "markdownlint-cli2@${MARKDOWNLINT_VERSION}"
 }
 
+# Links between the repo's own files and their anchors. External URLs are not checked: a site's
+# downtime would turn the gate red with no change in the code. The binary is pinned by checksum.
+links() {
+  local dir bin
+  dir=$(mktemp -d)
+  bin=$("$PY" scripts/fetch-lychee.py "$dir") || {
+    rm -rf "$dir"
+    return 1
+  }
+  "$bin" --offline --no-progress --include-fragments --exclude-path docs/plans --exclude-path docs/lint-scripts '**/*.md'
+  local rc=$?
+  rm -rf "$dir"
+  return "$rc"
+}
+
 clones() {
   npx --yes "jscpd@${JSCPD_VERSION}" .
 }
@@ -128,6 +143,7 @@ step "workflows (actionlint, zizmor)" workflows
 step "shell scripts (shellcheck, shfmt)" shell_scripts
 step "spelling (typos)" spelling
 step "docs (yamllint, markdownlint)" docs
+step "links (lychee, offline)" links
 step "duplicate code (jscpd)" clones
 step "secrets (gitleaks)" secrets
 step "build" go build ./...
