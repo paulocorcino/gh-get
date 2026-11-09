@@ -7,6 +7,8 @@ cd "$(dirname "$0")/.."
 GOLANGCI_LINT_VERSION=v2.15.0
 DEADCODE_VERSION=v0.52.0 # golang.org/x/tools
 GOVULNCHECK_VERSION=v1.9.0
+ACTIONLINT_VERSION=v1.7.12
+ZIZMOR_VERSION=1.32.0 # PyPI
 GL=${GOLANGCI_LINT:-"go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"}
 PY=$(command -v python3 || command -v python)
 BASE=${BASE_REF:-origin/main}
@@ -35,6 +37,17 @@ vulns() {
   go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
 }
 
+workflows() {
+  go run "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}" -color=false || return 1
+  local venv
+  venv=$(mktemp -d)
+  "$PY" -m venv "$venv" && "$venv"/*/pip install -q "zizmor==${ZIZMOR_VERSION}" || return 1
+  "$venv"/*/zizmor --no-progress --offline .
+  local rc=$?
+  rm -rf "$venv"
+  return $rc
+}
+
 debt_shrink() {
   local base
   base=$(git merge-base HEAD "$BASE" 2>/dev/null) || return 0 # no base: this change brings the first list
@@ -52,6 +65,7 @@ step "lint (golangci-lint)" $GL run ./...
 step "debt list only shrinks" debt_shrink
 step "unreachable code (deadcode)" unreachable
 step "vulnerabilities (govulncheck)" vulns
+step "workflows (actionlint, zizmor)" workflows
 step "build" go build ./...
 step "test" go test -race -count=1 -shuffle=on ./...
 
