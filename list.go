@@ -183,9 +183,9 @@ func syncListEntry(client *fetch.Client, e manifest.Entry, baseDir, cwd string, 
 		}
 		dest = entryDest(e, baseDir, src.Repo, src.Path)
 	case refresh:
-		sha, ok, err := client.CheckRef(src.Owner, src.Repo)(src.Ref)
-		if err != nil {
-			return dest, 0, fmt.Errorf("checking ref: %w", err)
+		sha, ok, refErr := client.CheckRef(src.Owner, src.Repo)(src.Ref)
+		if refErr != nil {
+			return dest, 0, fmt.Errorf("checking ref: %w", refErr)
 		}
 		if !ok {
 			return dest, 0, fmt.Errorf("%w: %s", ErrRefGone, src.Ref)

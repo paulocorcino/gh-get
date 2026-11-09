@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -22,7 +23,7 @@ import (
 // releasesURL is the project's GitHub releases page; a variable so tests can
 // point it at a local server. Everything self-update needs is served here, not
 // by the REST API, so it does not consume the API rate limit.
-var releasesURL = "https://github.com/paulocorcino/gh-get/releases"
+var releasesURL = "https://github.com/paulocorcino/gh-get/releases" //nolint:gochecknoglobals // test seam: tests point it at a local server
 
 // maxReleaseAsset caps a downloaded release file, guarding against a runaway
 // response (binaries are a few MB).
@@ -56,7 +57,8 @@ func runSelfUpdate(force bool, stdout io.Writer) error {
 // build or an already-current version is only replaced with force.
 func selfUpdate(exe, current, asset string, force bool, stdout io.Writer) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
-	latest, err := latestRelease(client)
+	ctx := context.Background()
+	latest, err := latestRelease(ctx, client)
 	if err != nil {
 		return fmt.Errorf("finding the latest release: %w", err)
 	}
@@ -69,7 +71,7 @@ func selfUpdate(exe, current, asset string, force bool, stdout io.Writer) error 
 	}
 
 	outf(stdout, "Downloading gh-get %s (%s)...\n", latest, asset)
-	sums, err := fetchReleaseFile(client, latest, "checksums.txt")
+	sums, err := fetchReleaseFile(ctx, client, latest, "checksums.txt")
 	if err != nil {
 		return fmt.Errorf("fetching checksums: %w", err)
 	}
@@ -77,7 +79,7 @@ func selfUpdate(exe, current, asset string, force bool, stdout io.Writer) error 
 	if err != nil {
 		return fmt.Errorf("verifying: %w", err)
 	}
-	bin, err := fetchReleaseFile(client, latest, asset)
+	bin, err := fetchReleaseFile(ctx, client, latest, asset)
 	if err != nil {
 		return fmt.Errorf("fetching the binary: %w", err)
 	}
@@ -97,15 +99,19 @@ func selfUpdate(exe, current, asset string, force bool, stdout io.Writer) error 
 
 // latestRelease returns the tag of the latest release, read from the redirect
 // of releases/latest to releases/tag/<tag> (no API request needed).
-func latestRelease(client *http.Client) (string, error) {
+func latestRelease(ctx context.Context, client *http.Client) (string, error) {
 	noFollow := *client
 	noFollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := noFollow.Get(releasesURL + "/latest")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releasesURL+"/latest", http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("requesting the latest release: %w", err)
 	}
-	if err := resp.Body.Close(); err != nil {
-		warn("closing the response: " + err.Error())
+	resp, err := noFollow.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("requesting the latest release: %w", err)
+	}
+	if closeErr := resp.Body.Close(); closeErr != nil {
+		warn("closing the response: " + closeErr.Error())
 	}
 	loc := resp.Header.Get("Location")
 	_, tag, ok := strings.Cut(loc, "/releases/tag/")
@@ -128,9 +134,13 @@ func releaseAsset(goos, goarch string) string {
 	return name
 }
 
-func fetchReleaseFile(client *http.Client, tag, name string) ([]byte, error) {
+func fetchReleaseFile(ctx context.Context, client *http.Client, tag, name string) ([]byte, error) {
 	u := releasesURL + "/download/" + url.PathEscape(tag) + "/" + url.PathEscape(name)
-	resp, err := client.Get(u)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("downloading %s: %w", name, err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("downloading %s: %w", name, err)
 	}

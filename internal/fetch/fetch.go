@@ -44,8 +44,8 @@ func (c *Client) Materialize(src ghurl.Source, destDir string, mode WriteMode, p
 		}
 	}()
 
-	if err := c.download(src, tmp, warn); err != nil {
-		return nil, err
+	if dlErr := c.download(src, tmp, warn); dlErr != nil {
+		return nil, dlErr
 	}
 	files, err := listFiles(tmp)
 	if err != nil {
@@ -57,6 +57,8 @@ func (c *Client) Materialize(src ghurl.Source, destDir string, mode WriteMode, p
 		if err := clearContents(destDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
+	case Merge:
+		// Merge overlays onto the existing files; nothing to clear first.
 	case Sync:
 		if err := pruneStale(destDir, prev, files); err != nil {
 			return nil, err

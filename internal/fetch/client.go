@@ -16,10 +16,10 @@ import (
 
 // Endpoints; variables only so tests can point them at a local server.
 var (
-	apiBase      = "https://api.github.com"
-	rawBase      = "https://raw.githubusercontent.com"
-	codeloadBase = "https://codeload.github.com"
-	gitBase      = "https://github.com"
+	apiBase      = "https://api.github.com"            //nolint:gochecknoglobals // test seam: tests point it at a local server
+	rawBase      = "https://raw.githubusercontent.com" //nolint:gochecknoglobals // test seam: tests point it at a local server
+	codeloadBase = "https://codeload.github.com"       //nolint:gochecknoglobals // test seam: tests point it at a local server
+	gitBase      = "https://github.com"                //nolint:gochecknoglobals // test seam: tests point it at a local server
 )
 
 const (

@@ -128,6 +128,15 @@ func main() {
 	}
 }
 
+// optionValue returns the argument after args[i], the value of an option that
+// takes one, and false when args ends at i.
+func optionValue(args []string, i int) (string, bool) {
+	if i+1 >= len(args) {
+		return "", false
+	}
+	return args[i+1], true
+}
+
 // run executes the command line args, printing to stdout and stderr; the
 // caller turns a returned error into the exit code.
 func run(args []string, stdout, stderr io.Writer) error {
@@ -179,25 +188,28 @@ func run(args []string, stdout, stderr io.Writer) error {
 		case a == "-r" || a == "--recursive":
 			recursive = true
 		case a == "--token":
-			if i+1 >= len(args) {
+			v, ok := optionValue(args, i)
+			if !ok {
 				return ErrTokenValue
 			}
 			i++
-			tokenFlag = args[i]
+			tokenFlag = v
 		case strings.HasPrefix(a, "--token="):
 			tokenFlag = strings.TrimPrefix(a, "--token=")
 		case a == "--ref" || a == "--branch":
-			if i+1 >= len(args) {
+			v, ok := optionValue(args, i)
+			if !ok {
 				return fmt.Errorf("%s %w", a, ErrMissingValue)
 			}
 			i++
-			refFlag = args[i]
+			refFlag = v
 		case a == "-F" || a == "--file":
-			if i+1 >= len(args) {
+			v, ok := optionValue(args, i)
+			if !ok {
 				return fmt.Errorf("%s %w", a, ErrMissingValue)
 			}
 			i++
-			listFile = args[i]
+			listFile = v
 		case strings.HasPrefix(a, "--file="):
 			listFile = strings.TrimPrefix(a, "--file=")
 		case strings.HasPrefix(a, "--ref="):
@@ -301,9 +313,9 @@ func runDownload(req downloadRequest, stdout, stderr io.Writer) error {
 	// --ref takes precedence over the branch embedded in the URL. The URL's ref
 	// is still resolved above so the folder path can be split correctly.
 	if refOverride != "" {
-		sha, ok, err := client.CheckRef(src.Owner, src.Repo)(refOverride)
-		if err != nil {
-			return err
+		sha, ok, refErr := client.CheckRef(src.Owner, src.Repo)(refOverride)
+		if refErr != nil {
+			return refErr
 		}
 		if !ok {
 			return fmt.Errorf("%w: %s", ErrRefNotFound, refOverride)
@@ -333,12 +345,14 @@ func runDownload(req downloadRequest, stdout, stderr io.Writer) error {
 	exists := statErr == nil
 
 	plan := destpolicy.Resolve(abs, cwd, exists, force)
-	mode := fetch.Replace
+	var mode fetch.WriteMode
 	switch plan.Action {
 	case destpolicy.Refuse:
 		return errors.New(plan.Reason) //nolint:err113 // the destination policy owns this message; callers only print it
 	case destpolicy.WriteInPlace:
 		mode = fetch.Merge
+	case destpolicy.Replace:
+		mode = fetch.Replace
 	}
 
 	folderLabel := src.Path
@@ -378,8 +392,8 @@ func runUpdate(token, refOverride string, stdout, stderr io.Writer) error {
 	// A plain "update" in a directory that is not itself a gh-get folder but
 	// holds a list file updates the list instead.
 	if refOverride == "" {
-		if _, err := meta.Read(cwd); errors.Is(err, fs.ErrNotExist) {
-			if _, err := os.Stat(manifest.DefaultFile); err == nil {
+		if _, readErr := meta.Read(cwd); errors.Is(readErr, fs.ErrNotExist) {
+			if _, statErr := os.Stat(manifest.DefaultFile); statErr == nil {
 				return runList(listRequest{Path: manifest.DefaultFile, Token: token, Refresh: true}, stdout, stderr)
 			}
 		}

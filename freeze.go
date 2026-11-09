@@ -230,7 +230,7 @@ func runFreeze(listPath string, stdout io.Writer) error {
 		case freezeChanged:
 			changed++
 			outf(stdout, "[changed] %s -> %s\n", label, sourceURL(r.Inst.Meta))
-		default:
+		case freezeKept:
 			kept++
 			outf(stdout, "[listed]  %s\n", label)
 		}

@@ -52,18 +52,8 @@ linters:
     - goconst
     # debt: 24 sites
     - gocognit
-    # debt: 6 sites
-    - govet
-    # debt: 5 sites
-    - gochecknoglobals
     # debt: 4 sites
     - revive
-    # debt: 3 sites
-    - exhaustive
-    # debt: 3 sites
-    - forcetypeassert
-    # debt: 3 sites
-    - noctx
     # debt: 2 sites
     - nestif
   settings:
@@ -99,18 +89,12 @@ linters:
           arguments: [5]
         - name: max-control-nesting
           arguments: [3]
-    gocritic:
-      disabled-checks:
-        # debt: 1 site
-        - badCall
     gosec:
       excludes:
         # debt: 15 sites
         - G304
         # debt: 5 sites
         - G703
-        # debt: 3 sites
-        - G602
         # debt: 1 site
         - G122
         # debt: 1 site

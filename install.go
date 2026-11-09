@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -80,7 +81,7 @@ func runInstall(modifyPath bool, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("finding the running binary: %w", err)
 	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+	if resolved, symErr := filepath.EvalSymlinks(exe); symErr == nil {
 		exe = resolved
 	}
 
@@ -220,8 +221,8 @@ func addToProfile(p profileEdit) (bool, error) {
 	if strings.Contains(string(existing), profileMarker) {
 		return false, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(p.File), 0o755); err != nil {
-		return false, fmt.Errorf("creating the directory: %w", err)
+	if mkErr := os.MkdirAll(filepath.Dir(p.File), 0o755); mkErr != nil {
+		return false, fmt.Errorf("creating the directory: %w", mkErr)
 	}
 	f, err := os.OpenFile(p.File, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -286,7 +287,7 @@ $new = if ($p.TrimEnd(';') -eq '') { $d } else { $p.TrimEnd(';') + ';' + $d }
 [Environment]::SetEnvironmentVariable('Path', $new, 'User')
 'added'`
 
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 	out, err := cmd.Output()
 	if err != nil {
 		return false, fmt.Errorf("updating user PATH: %w", err)

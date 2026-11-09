@@ -24,7 +24,7 @@ func TestShellProfile(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got := shellProfile(tc.shell, home, tc.zdotdir, tc.goos, dir)
-		if got.File != filepath.Join(filepath.FromSlash(tc.wantFile)) {
+		if got.File != filepath.FromSlash(tc.wantFile) {
 			t.Errorf("shell %q on %s: file = %q, want %q", tc.shell, tc.goos, got.File, tc.wantFile)
 		}
 	}
