@@ -128,7 +128,7 @@ func latestRelease(ctx context.Context, client *http.Client) (string, error) {
 // releaseAsset is the raw binary name the release workflow publishes.
 func releaseAsset(goos, goarch string) string {
 	name := "gh-get_" + goos + "_" + goarch
-	if goos == "windows" {
+	if goos == goosWindows {
 		name += ".exe"
 	}
 	return name
@@ -187,7 +187,7 @@ func replaceExecutable(exe string, data []byte) error {
 		return fmt.Errorf("staging the new binary: %w", err)
 	}
 
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		old := exe + ".old"
 		if err := os.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			// A previous old binary is still running; pick a fresh name.
@@ -225,7 +225,7 @@ func removeOrWarn(path string) {
 // removeReplacedBinary deletes executables a Windows self-update moved aside.
 // It is best-effort: one still running (or locked) is left for the next run.
 func removeReplacedBinary() {
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS != goosWindows {
 		return
 	}
 	exe, err := os.Executable()

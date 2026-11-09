@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/paulocorcino/gh-get/internal/ghurl"
@@ -36,7 +37,7 @@ type Entry struct {
 
 // Load reads and parses the list file at path.
 func Load(path string) ([]Entry, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("opening list file: %w", err)
 	}

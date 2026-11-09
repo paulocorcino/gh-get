@@ -33,7 +33,7 @@ type Meta struct {
 // Read loads the marker from dir. It returns os.ErrNotExist (wrapped) when the
 // file is absent so callers can distinguish "not a gh-get folder".
 func Read(dir string) (Meta, error) {
-	f, err := os.Open(filepath.Join(dir, FileName))
+	f, err := os.Open(filepath.Clean(filepath.Join(dir, FileName)))
 	if err != nil {
 		return Meta{}, fmt.Errorf("opening marker: %w", err)
 	}

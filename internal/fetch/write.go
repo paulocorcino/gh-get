@@ -35,7 +35,7 @@ func writeFile(dest string, data []byte, exec bool) error {
 	if exec && runtime.GOOS != "windows" {
 		mode = 0o755
 	}
-	if err := os.WriteFile(dest, data, mode); err != nil {
+	if err := os.WriteFile(dest, data, mode); err != nil { //nolint:gosec // G703: callers confine dest with safeJoin; the tainted value is file content, not a path
 		return fmt.Errorf("writing %s: %w", dest, err)
 	}
 	return nil
@@ -65,7 +65,11 @@ func writeSymlink(dest, target string, warn func(string)) error {
 // lives in exactly one place. Existing files at colliding paths are overwritten;
 // files in dst that have no counterpart in src are left untouched (merge).
 func publishTree(src, dst string, warn func(string)) error {
-	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	root, err := os.OpenRoot(src)
+	if err != nil {
+		return fmt.Errorf("publishing %s: %w", src, err)
+	}
+	err = filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -85,19 +89,22 @@ func publishTree(src, dst string, warn func(string)) error {
 			}
 			return nil
 		case info.Mode()&os.ModeSymlink != 0:
-			link, err := os.Readlink(path)
+			link, err := root.Readlink(rel)
 			if err != nil {
 				return fmt.Errorf("reading link %s: %w", path, err)
 			}
 			return writeSymlink(target, link, warn)
 		default:
-			data, err := os.ReadFile(path)
+			data, err := root.ReadFile(rel)
 			if err != nil {
 				return fmt.Errorf("reading %s: %w", path, err)
 			}
 			return writeFile(target, data, info.Mode()&0o111 != 0)
 		}
 	})
+	if cerr := root.Close(); cerr != nil && err == nil {
+		err = cerr
+	}
 	if err != nil {
 		return fmt.Errorf("publishing %s: %w", src, err)
 	}

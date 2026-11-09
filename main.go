@@ -491,7 +491,7 @@ type recursiveDiscovery struct {
 func discoverRecursive(root string) recursiveDiscovery {
 	var found []string
 	var scanErrors []pathError
-	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error { //nolint:gosec // G703: root is the directory the user named to scan, by design
 		if err != nil {
 			scanErrors = append(scanErrors, pathError{Path: path, Err: err})
 			if entry != nil && entry.IsDir() {

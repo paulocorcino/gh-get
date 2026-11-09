@@ -48,8 +48,6 @@ linters:
     - wsl
     # noise: blank-line style only
     - wsl_v5
-    # debt: 28 sites
-    - goconst
     # debt: 24 sites
     - gocognit
     # debt: 4 sites
@@ -90,17 +88,6 @@ linters:
         - name: max-control-nesting
           arguments: [3]
     gosec:
-      excludes:
-        # debt: 15 sites
-        - G304
-        # debt: 5 sites
-        - G703
-        # debt: 1 site
-        - G122
-        # debt: 1 site
-        - G204
-        # debt: 1 site
-        - G306
       config:                     # the widest mode each rule accepts; a tool that writes files with these modes is not a finding
         G301: "0755"
         G302: "0755"
@@ -116,7 +103,7 @@ linters:
   exclusions:
     rules:
       - path: _test\.go
-        linters: [err113, wrapcheck]
+        linters: [err113, wrapcheck, goconst, gosec]
 formatters:
   enable: [gofumpt, goimports]
 issues:

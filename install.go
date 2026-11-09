@@ -13,6 +13,10 @@ import (
 	"strings"
 )
 
+// goosWindows is the runtime.GOOS value of Windows, where install paths, PATH
+// handling and binary names differ.
+const goosWindows = "windows"
+
 // ErrNoLocalAppData is returned by --install on Windows without %LOCALAPPDATA%.
 var ErrNoLocalAppData = errors.New("LOCALAPPDATA is not set")
 
@@ -21,12 +25,12 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("creating the directory: %w", err)
 	}
-	in, err := os.Open(src)
+	in, err := os.Open(filepath.Clean(src))
 	if err != nil {
 		return fmt.Errorf("opening the source: %w", err)
 	}
 	defer closeOrWarn(in)
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	out, err := os.OpenFile(filepath.Clean(dst), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return fmt.Errorf("opening the destination: %w", err)
 	}
@@ -51,7 +55,7 @@ func closeOrWarn(c io.Closer) {
 // installDir returns the per-user directory gh-get installs itself into. None of
 // these locations require administrator/root rights.
 func installDir() (string, error) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		base := os.Getenv("LOCALAPPDATA")
 		if base == "" {
 			return "", ErrNoLocalAppData
@@ -66,7 +70,7 @@ func installDir() (string, error) {
 }
 
 func installBinName() string {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		return "gh-get.exe"
 	}
 	return "gh-get"
@@ -130,7 +134,7 @@ func ensureOnPath(dir string, modifyPath bool, stdout io.Writer) error {
 		return nil
 	}
 
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		if !modifyPath {
 			outln(stdout, "\n'"+dir+"' is not on your PATH yet; add it to your user PATH.")
 			return nil
@@ -266,7 +270,7 @@ func pathContains(pathEnv, dir string) bool {
 
 // eqPath compares two paths, case-insensitively on Windows.
 func eqPath(a, b string) bool {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == goosWindows {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
@@ -277,8 +281,7 @@ func eqPath(a, b string) bool {
 // whether the directory was newly added. Using SetEnvironmentVariable avoids the
 // 1024-character truncation bug of setx.
 func addToWindowsUserPath(dir string) (bool, error) {
-	q := "'" + strings.ReplaceAll(dir, "'", "''") + "'"
-	script := `$d = ` + q + `
+	const script = `$d = $env:GH_GET_INSTALL_DIR
 $p = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (-not $p) { $p = '' }
 $parts = $p -split ';' | Where-Object { $_ -ne '' }
@@ -288,6 +291,7 @@ $new = if ($p.TrimEnd(';') -eq '') { $d } else { $p.TrimEnd(';') + ';' + $d }
 'added'`
 
 	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd.Env = append(os.Environ(), "GH_GET_INSTALL_DIR="+dir) // passed as data, never parsed as PowerShell code
 	out, err := cmd.Output()
 	if err != nil {
 		return false, fmt.Errorf("updating user PATH: %w", err)

@@ -172,7 +172,7 @@ func runFreeze(listPath string, stdout io.Writer) error {
 
 	var lines []string
 	var entries []manifest.Entry
-	data, err := os.ReadFile(absList)
+	data, err := os.ReadFile(absList) //nolint:gosec // G304,G703: the list file path is the user's own command-line argument by design
 	exists := err == nil
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -237,7 +237,7 @@ func runFreeze(listPath string, stdout io.Writer) error {
 	}
 
 	if added+changed > 0 || !exists {
-		if err := os.WriteFile(absList, []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(absList, []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil { //nolint:gosec // G703: the list file path is the user's own command-line argument by design
 			return fmt.Errorf("writing the list file: %w", err)
 		}
 		outf(stdout, "\nWrote %s\n", absList)
