@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # The gate: the one command that runs every check. CI runs this same script.
 # Needs: go, git, python3 (for docs/lint-scripts/debt.py). Prints one row per check.
+# shellcheck disable=SC2329 # the check functions are called through `step`
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit
 
 GOLANGCI_LINT_VERSION=v2.15.0
 DEADCODE_VERSION=v0.52.0 # golang.org/x/tools
 GOVULNCHECK_VERSION=v1.9.0
 ACTIONLINT_VERSION=v1.7.12
-ZIZMOR_VERSION=1.32.0 # PyPI
-GL=${GOLANGCI_LINT:-"go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"}
+GITLEAKS_VERSION=v8.30.1
+SHFMT_VERSION=v3.13.1
+ZIZMOR_VERSION=1.32.0          # PyPI
+TYPOS_VERSION=1.52.0           # PyPI
+SHELLCHECK_PY_VERSION=0.11.0.1 # PyPI
+read -ra GL <<<"${GOLANGCI_LINT:-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}}"
 PY=$(command -v python3 || command -v python)
 BASE=${BASE_REF:-origin/main}
 
@@ -30,43 +35,77 @@ step() {
 unreachable() {
   local out
   out=$(go run "golang.org/x/tools/cmd/deadcode@${DEADCODE_VERSION}" ./...) || return 1
-  [ -z "$out" ] || { echo "$out"; return 1; }
+  [ -z "$out" ] || {
+    echo "$out"
+    return 1
+  }
 }
 
 vulns() {
   go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
 }
 
+# The PyPI tools (zizmor, typos, shellcheck) live in one throwaway venv, pinned.
+PYTOOLS=
+pytools() {
+  [ -n "$PYTOOLS" ] && return 0
+  PYTOOLS=$(mktemp -d)
+  "$PY" -m venv "$PYTOOLS" || return 1
+  local bin="$PYTOOLS/bin"
+  [ -d "$PYTOOLS/Scripts" ] && bin="$PYTOOLS/Scripts"
+  "$bin/pip" install -q "zizmor==${ZIZMOR_VERSION}" "typos==${TYPOS_VERSION}" "shellcheck-py==${SHELLCHECK_PY_VERSION}" || return 1
+}
+pybin() {
+  local tool=$1
+  shift
+  pytools || return 1
+  if [ -d "$PYTOOLS/Scripts" ]; then "$PYTOOLS/Scripts/$tool" "$@"; else "$PYTOOLS/bin/$tool" "$@"; fi
+}
+
 workflows() {
   go run "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}" -color=false || return 1
-  local venv
-  venv=$(mktemp -d)
-  "$PY" -m venv "$venv" && "$venv"/*/pip install -q "zizmor==${ZIZMOR_VERSION}" || return 1
-  "$venv"/*/zizmor --no-progress --offline .
-  local rc=$?
-  rm -rf "$venv"
-  return $rc
+  pybin zizmor --no-progress --offline .
+}
+
+shell_scripts() {
+  pybin shellcheck scripts/*.sh || return 1
+  go run "mvdan.cc/sh/v3/cmd/shfmt@${SHFMT_VERSION}" -i 2 -d scripts/*.sh
+}
+
+spelling() {
+  pybin typos .
+}
+
+secrets() {
+  go run "github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}" git --no-banner --redact
 }
 
 debt_shrink() {
   local base
   base=$(git merge-base HEAD "$BASE" 2>/dev/null) || return 0 # no base: this change brings the first list
-  git show "$base:.golangci.yml" >.golangci.base.yml 2>/dev/null || { rm -f .golangci.base.yml; return 0; }
+  git show "$base:.golangci.yml" >.golangci.base.yml 2>/dev/null || {
+    rm -f .golangci.base.yml
+    return 0
+  }
   "$PY" docs/lint-scripts/debt.py shrink .golangci.base.yml .golangci.yml --plan docs/lint-transition.md
   local rc=$?
   rm -f .golangci.base.yml
-  return $rc
+  return "$rc"
 }
 
-step "format (golangci-lint fmt)" $GL fmt --diff
+step "format (golangci-lint fmt)" "${GL[@]}" fmt --diff
 step "go mod tidy" go mod tidy -diff
 step "vet" go vet ./...
-step "lint (golangci-lint)" $GL run ./...
+step "lint (golangci-lint)" "${GL[@]}" run ./...
 step "debt list only shrinks" debt_shrink
 step "unreachable code (deadcode)" unreachable
 step "vulnerabilities (govulncheck)" vulns
 step "workflows (actionlint, zizmor)" workflows
+step "shell scripts (shellcheck, shfmt)" shell_scripts
+step "spelling (typos)" spelling
+step "secrets (gitleaks)" secrets
 step "build" go build ./...
 step "test" go test -race -count=1 -shuffle=on ./...
 
-exit $fail
+[ -n "$PYTOOLS" ] && rm -rf "$PYTOOLS"
+exit "$fail"
