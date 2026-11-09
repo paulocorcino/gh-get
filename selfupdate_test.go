@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -51,7 +52,7 @@ func TestSelfUpdate_ReplacesWithVerifiedBinary(t *testing.T) {
 	fakeReleases(t, asset, "new binary", "")
 	exe := fakeExe(t)
 
-	if err := selfUpdate(exe, "v1.0.0", "linux", "amd64", false); err != nil {
+	if err := selfUpdate(exe, "v1.0.0", releaseAsset("linux", "amd64"), false, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustRead(t, exe); string(got) != "new binary" {
@@ -74,7 +75,7 @@ func TestSelfUpdate_ChecksumMismatchKeepsBinary(t *testing.T) {
 	fakeReleases(t, asset, "tampered", strings.Repeat("0", 64))
 	exe := fakeExe(t)
 
-	err := selfUpdate(exe, "v1.0.0", "linux", "amd64", false)
+	err := selfUpdate(exe, "v1.0.0", releaseAsset("linux", "amd64"), false, new(bytes.Buffer))
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("err = %v, want checksum mismatch", err)
 	}
@@ -88,17 +89,17 @@ func TestSelfUpdate_SkipsCurrentAndDevWithoutForce(t *testing.T) {
 	fakeReleases(t, asset, "new binary", "")
 	exe := fakeExe(t)
 
-	if err := selfUpdate(exe, "v9.9.9", "linux", "amd64", false); err != nil {
+	if err := selfUpdate(exe, "v9.9.9", releaseAsset("linux", "amd64"), false, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
-	if err := selfUpdate(exe, "dev", "linux", "amd64", false); err == nil {
+	if err := selfUpdate(exe, "dev", releaseAsset("linux", "amd64"), false, new(bytes.Buffer)); err == nil {
 		t.Fatal("dev build replaced without --force")
 	}
 	if got := mustRead(t, exe); string(got) != "old binary" {
 		t.Fatalf("exe = %q, must be untouched", got)
 	}
 
-	if err := selfUpdate(exe, "dev", "linux", "amd64", true); err != nil {
+	if err := selfUpdate(exe, "dev", releaseAsset("linux", "amd64"), true, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
 	if got := mustRead(t, exe); string(got) != "new binary" {
@@ -109,7 +110,7 @@ func TestSelfUpdate_SkipsCurrentAndDevWithoutForce(t *testing.T) {
 func TestSelfUpdate_UnknownPlatform(t *testing.T) {
 	fakeReleases(t, releaseAsset("linux", "amd64"), "new binary", "")
 	exe := fakeExe(t)
-	err := selfUpdate(exe, "v1.0.0", "plan9", "mips", false)
+	err := selfUpdate(exe, "v1.0.0", releaseAsset("plan9", "mips"), false, new(bytes.Buffer))
 	if err == nil || !strings.Contains(err.Error(), "no checksum") {
 		t.Fatalf("err = %v, want missing checksum", err)
 	}

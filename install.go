@@ -74,8 +74,8 @@ func installBinName() string {
 // runInstall copies the running binary into a per-user bin directory and makes
 // sure that directory is on the user's PATH: the user PATH on Windows, the
 // shell profile elsewhere (unless modifyPath is false, which only prints the
-// line to add). It never requires elevated privileges.
-func runInstall(modifyPath bool) error {
+// line to add). It never requires elevated privileges. Messages go to stdout.
+func runInstall(modifyPath bool, stdout io.Writer) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("finding the running binary: %w", err)
@@ -91,8 +91,8 @@ func runInstall(modifyPath bool) error {
 	dest := filepath.Join(dir, installBinName())
 
 	if sameFile(exe, dest) {
-		fmt.Println("Already installed at:")
-		fmt.Println("  " + dest)
+		outln(stdout, "Already installed at:")
+		outln(stdout, "  "+dest)
 	} else {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("creating %s: %w", dir, err)
@@ -100,11 +100,11 @@ func runInstall(modifyPath bool) error {
 		if err := copyFile(exe, dest, 0o755); err != nil {
 			return fmt.Errorf("copying binary to %s: %w", dest, err)
 		}
-		fmt.Println("Installed gh-get to:")
-		fmt.Println("  " + dest)
+		outln(stdout, "Installed gh-get to:")
+		outln(stdout, "  "+dest)
 	}
 
-	return ensureOnPath(dir, modifyPath)
+	return ensureOnPath(dir, modifyPath, stdout)
 }
 
 // sameFile reports whether a and b resolve to the same existing file.
@@ -123,15 +123,15 @@ func sameFile(a, b string) bool {
 // ensureOnPath makes sure dir is reachable from the user's PATH. On Windows it
 // edits the user PATH; elsewhere it appends a guarded line to the profile of
 // the user's shell. With modifyPath false it only prints what to add.
-func ensureOnPath(dir string, modifyPath bool) error {
+func ensureOnPath(dir string, modifyPath bool, stdout io.Writer) error {
 	if pathContains(os.Getenv("PATH"), dir) {
-		fmt.Println("\n'" + dir + "' is already on your PATH. Run: gh-get --version")
+		outln(stdout, "\n'"+dir+"' is already on your PATH. Run: gh-get --version")
 		return nil
 	}
 
 	if runtime.GOOS == "windows" {
 		if !modifyPath {
-			fmt.Println("\n'" + dir + "' is not on your PATH yet; add it to your user PATH.")
+			outln(stdout, "\n'"+dir+"' is not on your PATH yet; add it to your user PATH.")
 			return nil
 		}
 		added, err := addToWindowsUserPath(dir)
@@ -139,11 +139,11 @@ func ensureOnPath(dir string, modifyPath bool) error {
 			return err
 		}
 		if added {
-			fmt.Println("\nAdded '" + dir + "' to your user PATH.")
+			outln(stdout, "\nAdded '"+dir+"' to your user PATH.")
 		} else {
-			fmt.Println("\n'" + dir + "' is already on your user PATH.")
+			outln(stdout, "\n'"+dir+"' is already on your user PATH.")
 		}
-		fmt.Println("Open a NEW terminal, then run: gh-get --version")
+		outln(stdout, "Open a NEW terminal, then run: gh-get --version")
 		return nil
 	}
 
@@ -153,10 +153,10 @@ func ensureOnPath(dir string, modifyPath bool) error {
 	}
 	prof := shellProfile(os.Getenv("SHELL"), home, os.Getenv("ZDOTDIR"), runtime.GOOS, dir)
 	if !modifyPath {
-		fmt.Println("\n'" + dir + "' is not on your PATH yet.")
-		fmt.Println("Add this to " + prof.File + ":")
-		fmt.Println("\n  " + prof.Line)
-		fmt.Println("\nThen restart your shell.")
+		outln(stdout, "\n'"+dir+"' is not on your PATH yet.")
+		outln(stdout, "Add this to "+prof.File+":")
+		outln(stdout, "\n  "+prof.Line)
+		outln(stdout, "\nThen restart your shell.")
 		return nil
 	}
 	added, err := addToProfile(prof)
@@ -164,11 +164,11 @@ func ensureOnPath(dir string, modifyPath bool) error {
 		return fmt.Errorf("updating %s: %w", prof.File, err)
 	}
 	if added {
-		fmt.Println("\nAdded '" + dir + "' to your PATH in " + prof.File)
+		outln(stdout, "\nAdded '"+dir+"' to your PATH in "+prof.File)
 	} else {
-		fmt.Println("\n" + prof.File + " already adds '" + dir + "' to your PATH.")
+		outln(stdout, "\n"+prof.File+" already adds '"+dir+"' to your PATH.")
 	}
-	fmt.Println("Open a NEW terminal, then run: gh-get --version")
+	outln(stdout, "Open a NEW terminal, then run: gh-get --version")
 	return nil
 }
 

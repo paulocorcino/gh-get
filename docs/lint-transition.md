@@ -176,7 +176,7 @@ Existing suppressions: `//nolint` 0, `//go:build ignore` 0, `_ =` / `_, _` on a 
 ## Decisions for the human
 
 - **D1 (taken)** `noinlineerr` off as noise: it bans the idiomatic `if err := f(); err != nil`; style only.
-- **D2 (taken)** Terminal output goes through an injected `io.Writer`; only `main` calls `os.Exit`. Holds phase 3.
+- **D2 (taken, delivered in lint(stage 6))** Terminal output goes through an injected `io.Writer`; only `main` calls `os.Exit`. Held phase 3.
 - **D3 (open)** Which package owns file writes with their modes, process spawns (`gosec` G204/G306/G304/G703/G122) and waiting in tests (`time.Sleep`). Options: one `internal/` package owns each capability and carries the one `//nolint` per call (recommended); or each call site carries its own reason (more exceptions to count). Holds the capability rows of phase 4.
 - **D4 (taken)** Layer boundaries for `depguard` (`strict` list: `$gostd` and the module path; the module has no dependencies). Recommended: turn it on with that list in phase 0. Costs nothing today.
 - **D5 (open)** Whether tests run in parallel (`paralleltest`, `tparallel`). Recommended: no for now; keep them off with this decision as the reason until the test suite is shared-state free.
@@ -355,3 +355,4 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 - 2026-11-08, lint(stage 3): `revive` unused-parameter fixed at 2 sites (`_`); `revive` stays listed for argument-limit (Stage 9).
 - 2026-11-08, lint(stage 4): `errorlint` flipped (2 sites: `errors.As` in `isRateLimit`, `errors.Is` for `io.EOF` in the tarball reader); errcheck, wrapcheck and err113 are 0 in `./internal/...` and stay listed for the root package (Stage 5).
 - 2026-11-08, lint(stage 5): `errcheck`, `wrapcheck`, `err113` and `gosec:G104` flipped (root package: sentinels `Err*` for usage and entry errors, context wraps at the package boundary, `meta.Read` now wraps and its callers use `errors.Is(err, fs.ErrNotExist)`).
+- 2026-11-08, lint(stage 6): `forbidigo` flipped (79 sites, D2 delivered: `run(args, stdout, stderr)` threads the writers down, every `fmt.Print*` is `fmt.Fprint*` to them with the same text, the fetch client warns through `stderr`; the one `os.Exit` in `main` carries `//nolint:forbidigo`).

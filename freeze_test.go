@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -77,7 +78,7 @@ func TestRunFreeze_CreatesThenKeepsListFile(t *testing.T) {
 	}
 	list := filepath.Join(root, manifest.DefaultFile)
 
-	if err := runFreeze(list); err != nil {
+	if err := runFreeze(list, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
 	first, err := os.ReadFile(list)
@@ -89,7 +90,7 @@ func TestRunFreeze_CreatesThenKeepsListFile(t *testing.T) {
 		t.Fatalf("entries = %#v, err %v\n%s", entries, err, first)
 	}
 
-	if err := runFreeze(list); err != nil {
+	if err := runFreeze(list, new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
 	second := mustRead(t, list)
@@ -99,7 +100,7 @@ func TestRunFreeze_CreatesThenKeepsListFile(t *testing.T) {
 }
 
 func TestRun_FreezeRejectsOtherFlags(t *testing.T) {
-	if err := run([]string{"freeze", "--force"}); err == nil {
+	if err := run([]string{"freeze", "--force"}, new(bytes.Buffer), new(bytes.Buffer)); err == nil {
 		t.Fatal("want error")
 	}
 }

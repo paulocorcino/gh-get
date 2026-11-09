@@ -48,8 +48,6 @@ linters:
     - wsl
     # noise: blank-line style only
     - wsl_v5
-    # debt: 79 sites
-    - forbidigo
     # debt: 28 sites
     - goconst
     # debt: 24 sites

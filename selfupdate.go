@@ -39,7 +39,7 @@ var (
 const maxReleaseAsset = 200 << 20
 
 // runSelfUpdate replaces the running executable with the latest release.
-func runSelfUpdate(force bool) error {
+func runSelfUpdate(force bool, stdout io.Writer) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("finding the running binary: %w", err)
@@ -47,14 +47,14 @@ func runSelfUpdate(force bool) error {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	return selfUpdate(exe, version, runtime.GOOS, runtime.GOARCH, force)
+	return selfUpdate(exe, version, releaseAsset(runtime.GOOS, runtime.GOARCH), force, stdout)
 }
 
-// selfUpdate replaces exe (built as version current) with the latest release
-// for goos/goarch. The download is verified against the release's
-// checksums.txt before exe is touched. A dev build or an already-current
-// version is only replaced with force.
-func selfUpdate(exe, current, goos, goarch string, force bool) error {
+// selfUpdate replaces exe (built as version current) with the release file
+// asset of the latest release, printing progress to stdout. The download is
+// verified against the release's checksums.txt before exe is touched. A dev
+// build or an already-current version is only replaced with force.
+func selfUpdate(exe, current, asset string, force bool, stdout io.Writer) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 	latest, err := latestRelease(client)
 	if err != nil {
@@ -64,12 +64,11 @@ func selfUpdate(exe, current, goos, goarch string, force bool) error {
 		return fmt.Errorf("%w; use --self-update --force to replace it with %s", ErrDevBuild, latest)
 	}
 	if current == latest && !force {
-		fmt.Printf("gh-get %s is already the latest version.\n", current)
+		outf(stdout, "gh-get %s is already the latest version.\n", current)
 		return nil
 	}
 
-	asset := releaseAsset(goos, goarch)
-	fmt.Printf("Downloading gh-get %s (%s)...\n", latest, asset)
+	outf(stdout, "Downloading gh-get %s (%s)...\n", latest, asset)
 	sums, err := fetchReleaseFile(client, latest, "checksums.txt")
 	if err != nil {
 		return fmt.Errorf("fetching checksums: %w", err)
@@ -92,7 +91,7 @@ func selfUpdate(exe, current, goos, goarch string, force bool) error {
 		}
 		return fmt.Errorf("replacing %s: %w", exe, err)
 	}
-	fmt.Printf("Updated gh-get %s -> %s\n  %s\n", current, latest, exe)
+	outf(stdout, "Updated gh-get %s -> %s\n  %s\n", current, latest, exe)
 	return nil
 }
 

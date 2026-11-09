@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -74,11 +75,21 @@ func containsOrEqual(parent, child string) bool {
 	return eqPath(parent, child) || isDescendant(parent, child)
 }
 
-// runList downloads (refresh=false) or updates (refresh=true) every entry of
-// the list file at listPath. Relative destinations resolve against the list
-// file's directory. Entries are processed sequentially and failures do not stop
-// the run; the command returns non-zero if any entry failed.
-func runList(listPath, token string, refresh, force bool) error {
+// listRequest is one run over a list file asked for on the command line.
+type listRequest struct {
+	Path    string // the list file
+	Token   string
+	Refresh bool // update existing entries too ("update -F"), not only download missing ones
+	Force   bool
+}
+
+// runList downloads (Refresh false) or updates (Refresh true) every entry of
+// the list file at req.Path, printing progress to stdout and notices to stderr.
+// Relative destinations resolve against the list file's directory. Entries are
+// processed sequentially and failures do not stop the run; the command returns
+// non-zero if any entry failed.
+func runList(req listRequest, stdout, stderr io.Writer) error {
+	listPath, token, refresh, force := req.Path, req.Token, req.Refresh, req.Force
 	absList, err := filepath.Abs(listPath)
 	if err != nil {
 		return fmt.Errorf("resolving the list file: %w", err)
@@ -97,12 +108,12 @@ func runList(listPath, token string, refresh, force bool) error {
 	if refresh {
 		verb = "Updating"
 	}
-	fmt.Printf("%s %d entr%s from %s\n", verb, len(entries), plural(len(entries), "y", "ies"), displayPath(cwd, absList))
+	outf(stdout, "%s %d entr%s from %s\n", verb, len(entries), plural(len(entries), "y", "ies"), displayPath(cwd, absList))
 	if len(entries) == 0 {
 		return nil
 	}
 
-	client := fetch.New(token, warn)
+	client := fetch.New(token, warnTo(stderr))
 	var claimed []string
 	var installed, updated, current, failed int
 	for _, e := range entries {
@@ -115,31 +126,31 @@ func runList(listPath, token string, refresh, force bool) error {
 		switch {
 		case err != nil:
 			failed++
-			fmt.Printf("[failed]    line %d: %s: %v\n", e.Line, label, err)
+			outf(stdout, "[failed]    line %d: %s: %v\n", e.Line, label, err)
 		case action == listInstall:
 			installed++
-			fmt.Printf("[installed] %s\n", label)
+			outf(stdout, "[installed] %s\n", label)
 		case action == listUpdate:
 			updated++
-			fmt.Printf("[updated]   %s\n", label)
+			outf(stdout, "[updated]   %s\n", label)
 		case refresh:
 			current++
-			fmt.Printf("[current]   %s\n", label)
+			outf(stdout, "[current]   %s\n", label)
 		default:
 			current++
-			fmt.Printf("[present]   %s\n", label)
+			outf(stdout, "[present]   %s\n", label)
 		}
 	}
 
-	fmt.Println("\nSummary:")
-	fmt.Printf("  Installed:          %d\n", installed)
+	outln(stdout, "\nSummary:")
+	outf(stdout, "  Installed:          %d\n", installed)
 	if refresh {
-		fmt.Printf("  Updated:            %d\n", updated)
-		fmt.Printf("  Already up to date: %d\n", current)
+		outf(stdout, "  Updated:            %d\n", updated)
+		outf(stdout, "  Already up to date: %d\n", current)
 	} else {
-		fmt.Printf("  Already present:    %d\n", current)
+		outf(stdout, "  Already present:    %d\n", current)
 	}
-	fmt.Printf("  Failed:             %d\n", failed)
+	outf(stdout, "  Failed:             %d\n", failed)
 	if failed > 0 {
 		return fmt.Errorf("%d list entr%s %w", failed, plural(failed, "y", "ies"), ErrEntriesFailed)
 	}

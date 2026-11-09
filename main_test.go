@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -115,14 +116,14 @@ func TestUpdateAll_ContinuesAfterFailure(t *testing.T) {
 }
 
 func TestRun_RejectsRecursiveWithRef(t *testing.T) {
-	err := run([]string{"update", "-r", "--ref", "main"})
+	err := run([]string{"update", "-r", "--ref", "main"}, new(bytes.Buffer), new(bytes.Buffer))
 	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestRun_RejectsRecursiveOutsideUpdate(t *testing.T) {
-	err := run([]string{"https://github.com/o/r", "--recursive"})
+	err := run([]string{"https://github.com/o/r", "--recursive"}, new(bytes.Buffer), new(bytes.Buffer))
 	if err == nil || !strings.Contains(err.Error(), "only valid with update") {
 		t.Fatalf("err = %v", err)
 	}
@@ -131,7 +132,7 @@ func TestRun_RejectsRecursiveOutsideUpdate(t *testing.T) {
 func TestRun_RecursiveNoInstallationsSucceeds(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	if err := run([]string{"update", "--recursive", "--token", "test"}); err != nil {
+	if err := run([]string{"update", "--recursive", "--token", "test"}, new(bytes.Buffer), new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -141,7 +142,7 @@ func TestUpdateAt_InvalidMarkerFailsBeforeNetwork(t *testing.T) {
 	if err := meta.Write(dir, meta.Meta{SourceURL: "https://github.com/o/r"}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := updateAt(fetch.New("test", nil), dir, "", false)
+	_, err := updateAt(fetch.New("test", nil), dir, "", new(bytes.Buffer), nil)
 	if err == nil || !strings.Contains(err.Error(), "invalid "+meta.FileName) {
 		t.Fatalf("err = %v", err)
 	}
@@ -194,7 +195,7 @@ func TestRun_FileRejectsIncompatibleArgs(t *testing.T) {
 		{"--file", "gh-get.txt", "--ref", "main"},
 		{"update", "--file=gh-get.txt", "-r"},
 	} {
-		if err := run(args); err == nil {
+		if err := run(args, new(bytes.Buffer), new(bytes.Buffer)); err == nil {
 			t.Errorf("run(%q) succeeded, want error", args)
 		}
 	}
@@ -205,7 +206,7 @@ func TestRun_EmptyListFileSucceeds(t *testing.T) {
 	if err := os.WriteFile(list, []byte("# nothing yet\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := run([]string{"-F", list, "--token", "test"}); err != nil {
+	if err := run([]string{"-F", list, "--token", "test"}, new(bytes.Buffer), new(bytes.Buffer)); err != nil {
 		t.Fatal(err)
 	}
 }

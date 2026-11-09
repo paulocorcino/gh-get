@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -161,8 +162,8 @@ const freezeHeader = `# gh-get list: one GitHub URL per line, optionally followe
 `
 
 // runFreeze scans the list file's directory for gh-get folders and creates or
-// updates the list file so it describes them.
-func runFreeze(listPath string) error {
+// updates the list file so it describes them, printing progress to stdout.
+func runFreeze(listPath string, stdout io.Writer) error {
 	absList, err := filepath.Abs(listPath)
 	if err != nil {
 		return fmt.Errorf("resolving the list file: %w", err)
@@ -188,21 +189,21 @@ func runFreeze(listPath string) error {
 		}
 	}
 
-	fmt.Println("Searching for gh-get installations under:")
-	fmt.Println("  " + baseDir)
+	outln(stdout, "Searching for gh-get installations under:")
+	outln(stdout, "  "+baseDir)
 	discovery := discoverRecursive(baseDir)
 	failed := len(discovery.Errors)
 	for _, scanErr := range discovery.Errors {
-		fmt.Printf("[failed]  %s: %v\n", displayPath(baseDir, scanErr.Path), scanErr.Err)
+		outf(stdout, "[failed]  %s: %v\n", displayPath(baseDir, scanErr.Path), scanErr.Err)
 	}
 	for _, path := range discovery.Skipped {
-		fmt.Printf("[skipped] %s (contains a nested gh-get installation)\n", displayPath(baseDir, path))
+		outf(stdout, "[skipped] %s (contains a nested gh-get installation)\n", displayPath(baseDir, path))
 	}
 
 	var insts []installation
 	for _, dir := range discovery.Targets {
 		if eqPath(dir, baseDir) {
-			fmt.Println("[skipped] . (the list file's own directory cannot be a list entry)")
+			outln(stdout, "[skipped] . (the list file's own directory cannot be a list entry)")
 			continue
 		}
 		m, err := meta.Read(dir)
@@ -211,7 +212,7 @@ func runFreeze(listPath string) error {
 		}
 		if err != nil {
 			failed++
-			fmt.Printf("[failed]  %s: %v\n", displayPath(baseDir, dir), err)
+			outf(stdout, "[failed]  %s: %v\n", displayPath(baseDir, dir), err)
 			continue
 		}
 		insts = append(insts, installation{Dir: dir, Meta: m})
@@ -225,13 +226,13 @@ func runFreeze(listPath string) error {
 		switch r.Status {
 		case freezeAdded:
 			added++
-			fmt.Printf("[added]   %s\n", label)
+			outf(stdout, "[added]   %s\n", label)
 		case freezeChanged:
 			changed++
-			fmt.Printf("[changed] %s -> %s\n", label, sourceURL(r.Inst.Meta))
+			outf(stdout, "[changed] %s -> %s\n", label, sourceURL(r.Inst.Meta))
 		default:
 			kept++
-			fmt.Printf("[listed]  %s\n", label)
+			outf(stdout, "[listed]  %s\n", label)
 		}
 	}
 
@@ -239,15 +240,15 @@ func runFreeze(listPath string) error {
 		if err := os.WriteFile(absList, []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil {
 			return fmt.Errorf("writing the list file: %w", err)
 		}
-		fmt.Printf("\nWrote %s\n", absList)
+		outf(stdout, "\nWrote %s\n", absList)
 	} else {
-		fmt.Printf("\n%s is already up to date.\n", absList)
+		outf(stdout, "\n%s is already up to date.\n", absList)
 	}
-	fmt.Println("Summary:")
-	fmt.Printf("  Added:          %d\n", added)
-	fmt.Printf("  Changed:        %d\n", changed)
-	fmt.Printf("  Already listed: %d\n", kept)
-	fmt.Printf("  Failed:         %d\n", failed)
+	outln(stdout, "Summary:")
+	outf(stdout, "  Added:          %d\n", added)
+	outf(stdout, "  Changed:        %d\n", changed)
+	outf(stdout, "  Already listed: %d\n", kept)
+	outf(stdout, "  Failed:         %d\n", failed)
 	if failed > 0 {
 		return fmt.Errorf("%d %w", failed, ErrFoldersUnread)
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -121,24 +122,26 @@ Options:
 
 func main() {
 	removeReplacedBinary()
-	if err := run(os.Args[1:]); err != nil {
+	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "Error: "+err.Error())
-		os.Exit(1)
+		os.Exit(1) //nolint:forbidigo // process exit code; main returns nothing
 	}
 }
 
-func run(args []string) error {
+// run executes the command line args, printing to stdout and stderr; the
+// caller turns a returned error into the exit code.
+func run(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		fmt.Print(usage)
+		outf(stdout, "%s", usage)
 		return nil
 	}
 
 	switch args[0] {
 	case "-h", "--help":
-		fmt.Print(usage)
+		outf(stdout, "%s", usage)
 		return nil
 	case "-v", "--version":
-		fmt.Println("gh-get " + version)
+		outln(stdout, "gh-get "+version)
 		return nil
 	case "--install":
 		modifyPath := true
@@ -148,7 +151,7 @@ func run(args []string) error {
 			}
 			modifyPath = false
 		}
-		return runInstall(modifyPath)
+		return runInstall(modifyPath, stdout)
 	case "--self-update":
 		force := false
 		for _, a := range args[1:] {
@@ -157,7 +160,7 @@ func run(args []string) error {
 			}
 			force = true
 		}
-		return runSelfUpdate(force)
+		return runSelfUpdate(force, stdout)
 	}
 
 	var (
@@ -218,7 +221,7 @@ func run(args []string) error {
 		if listFile == "" {
 			listFile = manifest.DefaultFile
 		}
-		return runFreeze(listFile)
+		return runFreeze(listFile, stdout)
 	}
 	if len(positional) > 0 && positional[0] == "update" {
 		if len(positional) > 1 {
@@ -232,12 +235,12 @@ func run(args []string) error {
 		}
 		token := resolveToken(tokenFlag)
 		if listFile != "" {
-			return runList(listFile, token, true, force)
+			return runList(listRequest{Path: listFile, Token: token, Refresh: true, Force: force}, stdout, stderr)
 		}
 		if recursive {
-			return runRecursiveUpdate(token)
+			return runRecursiveUpdate(token, stdout, stderr)
 		}
-		return runUpdate(token, refFlag)
+		return runUpdate(token, refFlag, stdout, stderr)
 	}
 	if recursive {
 		return ErrRecursiveUpdateOnly
@@ -249,11 +252,11 @@ func run(args []string) error {
 		if refFlag != "" {
 			return ErrFileRef
 		}
-		return runList(listFile, resolveToken(tokenFlag), false, force)
+		return runList(listRequest{Path: listFile, Token: resolveToken(tokenFlag), Force: force}, stdout, stderr)
 	}
 
 	if len(positional) == 0 {
-		fmt.Print(usage)
+		outf(stdout, "%s", usage)
 		return ErrMissingURL
 	}
 	if len(positional) > 2 {
@@ -261,16 +264,26 @@ func run(args []string) error {
 	}
 	token := resolveToken(tokenFlag)
 
-	url := positional[0]
-	dest := ""
+	req := downloadRequest{URL: positional[0], Force: force, Token: token, Ref: refFlag}
 	if len(positional) == 2 {
-		dest = positional[1]
+		req.Dest = positional[1]
 	}
-	return runDownload(url, dest, force, token, refFlag)
+	return runDownload(req, stdout, stderr)
 }
 
-func runDownload(url, dest string, force bool, token, refOverride string) error {
-	client := fetch.New(token, warn)
+// downloadRequest is one download asked for on the command line.
+type downloadRequest struct {
+	URL   string
+	Dest  string // "" names the destination after the folder (or the repo)
+	Force bool
+	Token string
+	Ref   string // overrides the ref in the URL when set
+}
+
+func runDownload(req downloadRequest, stdout, stderr io.Writer) error {
+	url, dest, force, refOverride := req.URL, req.Dest, req.Force, req.Ref
+	warnf := warnTo(stderr)
+	client := fetch.New(req.Token, warnf)
 
 	partial, err := ghurl.Parse(url)
 	if err != nil {
@@ -336,13 +349,13 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 	if plan.Action == destpolicy.WriteInPlace {
 		destLabel = dest + " (in place — existing files with the same name are overwritten)"
 	}
-	fmt.Println("Downloading from GitHub...")
-	fmt.Printf("  Repository: %s/%s\n", src.Owner, src.Repo)
-	fmt.Printf("  Ref:        %s\n", src.Ref)
-	fmt.Printf("  Folder:     %s\n", folderLabel)
-	fmt.Printf("  Destination:%s\n\n", " "+destLabel)
+	outln(stdout, "Downloading from GitHub...")
+	outf(stdout, "  Repository: %s/%s\n", src.Owner, src.Repo)
+	outf(stdout, "  Ref:        %s\n", src.Ref)
+	outf(stdout, "  Folder:     %s\n", folderLabel)
+	outf(stdout, "  Destination:%s\n\n", " "+destLabel)
 
-	files, err := client.Materialize(src, dest, mode, nil, warn)
+	files, err := client.Materialize(src, dest, mode, nil, warnf)
 	if err != nil {
 		return fmt.Errorf("downloading: %w", err)
 	}
@@ -352,12 +365,12 @@ func runDownload(url, dest string, force bool, token, refOverride string) error 
 		return fmt.Errorf("recording the source: %w", err)
 	}
 
-	fmt.Println("Done:")
-	fmt.Println("  " + dest)
+	outln(stdout, "Done:")
+	outln(stdout, "  "+dest)
 	return nil
 }
 
-func runUpdate(token, refOverride string) error {
+func runUpdate(token, refOverride string, stdout, stderr io.Writer) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("reading the current directory: %w", err)
@@ -367,12 +380,13 @@ func runUpdate(token, refOverride string) error {
 	if refOverride == "" {
 		if _, err := meta.Read(cwd); errors.Is(err, fs.ErrNotExist) {
 			if _, err := os.Stat(manifest.DefaultFile); err == nil {
-				return runList(manifest.DefaultFile, token, true, false)
+				return runList(listRequest{Path: manifest.DefaultFile, Token: token, Refresh: true}, stdout, stderr)
 			}
 		}
 	}
-	client := fetch.New(token, warn)
-	_, err = updateAt(client, cwd, refOverride, true)
+	warnf := warnTo(stderr)
+	client := fetch.New(token, warnf)
+	_, err = updateAt(client, cwd, refOverride, stdout, warnf)
 	return err
 }
 
@@ -384,9 +398,10 @@ const (
 	updateChanged
 )
 
-// updateAt updates one gh-get installation. When verbose is false, callers can
-// present compact aggregate output using the returned status.
-func updateAt(client *fetch.Client, dir, refOverride string, verbose bool) (updateStatus, error) {
+// updateAt updates one gh-get installation, printing its progress to stdout and
+// its non-fatal notices to warnf. Callers that present compact aggregate output
+// using the returned status pass io.Discard as stdout.
+func updateAt(client *fetch.Client, dir, refOverride string, stdout io.Writer, warnf func(string)) (updateStatus, error) {
 	m, err := meta.Read(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -418,24 +433,20 @@ func updateAt(client *fetch.Client, dir, refOverride string, verbose bool) (upda
 	}
 	// Short-circuit only when staying on the same ref at the same commit.
 	if ref == m.Branch && sha == m.Commit && m.Commit != "" {
-		if verbose {
-			fmt.Println("Already up to date.")
-		}
+		outln(stdout, "Already up to date.")
 		return updateCurrent, nil
 	}
 
 	src := ghurl.Build(m.Owner, m.Repo, ref, m.FolderPath, sha)
 
-	if verbose {
-		fmt.Println("Updating current folder via gh-get...")
-		fmt.Printf("  Source: %s\n", m.SourceURL)
-		fmt.Printf("  Dest:   %s\n\n", dir)
-	}
+	outln(stdout, "Updating current folder via gh-get...")
+	outf(stdout, "  Source: %s\n", m.SourceURL)
+	outf(stdout, "  Dest:   %s\n\n", dir)
 
 	// Materialize downloads to a temp area first, so a failure never destroys
 	// local content; Sync removes only files the previous download wrote, so
 	// unrelated content sharing the folder is kept.
-	files, err := client.Materialize(src, dir, fetch.Sync, m.Files, warn)
+	files, err := client.Materialize(src, dir, fetch.Sync, m.Files, warnf)
 	if err != nil {
 		return updateNotManaged, fmt.Errorf("updating: %w", err)
 	}
@@ -445,10 +456,8 @@ func updateAt(client *fetch.Client, dir, refOverride string, verbose bool) (upda
 		return updateNotManaged, fmt.Errorf("recording the source: %w", err)
 	}
 
-	if verbose {
-		fmt.Println("Updated:")
-		fmt.Println("  " + dir)
-	}
+	outln(stdout, "Updated:")
+	outln(stdout, "  "+dir)
 	return updateChanged, nil
 }
 
@@ -547,54 +556,55 @@ func updateAll(paths []string, updater func(string) (updateStatus, error)) []upd
 	return attempts
 }
 
-func runRecursiveUpdate(token string) error {
+func runRecursiveUpdate(token string, stdout, stderr io.Writer) error {
 	root, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("reading the current directory: %w", err)
 	}
 
-	fmt.Println("Searching for gh-get installations under:")
-	fmt.Println("  " + root)
+	outln(stdout, "Searching for gh-get installations under:")
+	outln(stdout, "  "+root)
 	discovery := discoverRecursive(root)
 	if len(discovery.Targets) == 0 && len(discovery.Skipped) == 0 && len(discovery.Errors) == 0 {
-		fmt.Println("No gh-get installations found.")
+		outln(stdout, "No gh-get installations found.")
 		return nil
 	}
 
 	summary := recursiveSummary{Skipped: len(discovery.Skipped), Failed: len(discovery.Errors)}
 	for _, path := range discovery.Skipped {
-		fmt.Printf("[skipped] %s (contains a nested gh-get installation)\n", displayPath(root, path))
+		outf(stdout, "[skipped] %s (contains a nested gh-get installation)\n", displayPath(root, path))
 	}
 	for _, scanErr := range discovery.Errors {
-		fmt.Printf("[failed]  %s: %v\n", displayPath(root, scanErr.Path), scanErr.Err)
+		outf(stdout, "[failed]  %s: %v\n", displayPath(root, scanErr.Path), scanErr.Err)
 	}
 
-	client := fetch.New(token, warn)
+	warnf := warnTo(stderr)
+	client := fetch.New(token, warnf)
 	attempts := updateAll(discovery.Targets, func(path string) (updateStatus, error) {
-		return updateAt(client, path, "", false)
+		return updateAt(client, path, "", io.Discard, warnf)
 	})
 	for _, attempt := range attempts {
 		switch {
 		case attempt.Err != nil:
 			summary.Failed++
-			fmt.Printf("[failed]  %s: %v\n", displayPath(root, attempt.Path), attempt.Err)
+			outf(stdout, "[failed]  %s: %v\n", displayPath(root, attempt.Path), attempt.Err)
 		case attempt.Status == updateChanged:
 			summary.Updated++
-			fmt.Printf("[updated] %s\n", displayPath(root, attempt.Path))
+			outf(stdout, "[updated] %s\n", displayPath(root, attempt.Path))
 		case attempt.Status == updateCurrent:
 			summary.Current++
-			fmt.Printf("[current] %s\n", displayPath(root, attempt.Path))
+			outf(stdout, "[current] %s\n", displayPath(root, attempt.Path))
 		default:
 			summary.Failed++
-			fmt.Printf("[failed]  %s: invalid or missing %s\n", displayPath(root, attempt.Path), meta.FileName)
+			outf(stdout, "[failed]  %s: invalid or missing %s\n", displayPath(root, attempt.Path), meta.FileName)
 		}
 	}
 
-	fmt.Println("\nSummary:")
-	fmt.Printf("  Updated:            %d\n", summary.Updated)
-	fmt.Printf("  Already up to date: %d\n", summary.Current)
-	fmt.Printf("  Skipped:            %d\n", summary.Skipped)
-	fmt.Printf("  Failed:             %d\n", summary.Failed)
+	outln(stdout, "\nSummary:")
+	outf(stdout, "  Updated:            %d\n", summary.Updated)
+	outf(stdout, "  Already up to date: %d\n", summary.Current)
+	outf(stdout, "  Skipped:            %d\n", summary.Skipped)
+	outf(stdout, "  Failed:             %d\n", summary.Failed)
 	if summary.Failed > 0 {
 		return fmt.Errorf("%d %w", summary.Failed, ErrRecursiveFailed)
 	}
@@ -649,6 +659,25 @@ func tokenFromGHCLI() string {
 	return strings.TrimSpace(string(out))
 }
 
+// warnTo returns a notice sink that prints each non-fatal notice to w.
+func warnTo(w io.Writer) func(string) {
+	return func(msg string) {
+		outln(w, "warning: "+msg)
+	}
+}
+
+// warn prints a non-fatal notice to the process's stderr. It is for leaf
+// cleanup helpers (closing or removing a file) that sit below any writer.
 func warn(msg string) {
-	fmt.Fprintln(os.Stderr, "warning: "+msg)
+	warnTo(os.Stderr)(msg)
+}
+
+// outf writes formatted terminal output to w, as fmt.Fprintf.
+func outf(w io.Writer, format string, a ...any) {
+	fmt.Fprintf(w, format, a...) //nolint:errcheck // terminal output, like printing to os.Stdout: a failed write to stdout/stderr has no one left to report to
+}
+
+// outln writes one line of terminal output to w, as fmt.Fprintln.
+func outln(w io.Writer, a ...any) {
+	fmt.Fprintln(w, a...) //nolint:errcheck // terminal output, like printing to os.Stdout: a failed write to stdout/stderr has no one left to report to
 }
