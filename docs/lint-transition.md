@@ -194,7 +194,8 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 - Done: `govulncheck` v1.9.0 is a row in `scripts/check.sh`; CI (go 1.26.10) reports 0 findings. A local go older than 1.26.10 fails this row on standard-library findings: upgrade the toolchain.
 - Pins: a test or step that compares the CI `go-version`, `GOLANGCI_LINT_VERSION` and `DEADCODE_VERSION` in `scripts/check.sh` with the versions this plan names; `go run pkg@version` is verified by the Go checksum database. A scheduled job that opens an issue when a pinned tool has a newer release (`drift.py age`).
 - A per-edit agent hook (fast: `golangci-lint run` on the changed package and `golangci-lint fmt --diff`) that also refuses `--no-verify`, force push, and unasked edits to `.golangci.yml`; then replace the "no per-edit hook yet" line in `AGENTS.md`.
-- Protected `main`: pull requests only, `Gate` required, no force push (GitHub setting). Pin actions by SHA, set a Dependabot cooldown; add actionlint and zizmor to the gate.
+- Done: actions pinned by SHA, `persist-credentials: false`, `softprops/action-gh-release` replaced by `gh release create`; actionlint v1.7.12 and zizmor 1.32.0 are a row in `scripts/check.sh` at 0 findings.
+- Open: protected `main` (pull requests only, `Gate` required, no force push: a GitHub setting) and a Dependabot cooldown for the action pins.
 - Add gitleaks, typos, shellcheck/shfmt on `scripts/check.sh`, markdownlint/yamllint/lychee for docs. Each at 0 findings before it joins the gate; otherwise it gets its own debt row here.
 - D4: `depguard` on with `list-mode: strict` and `allow: [$gostd, github.com/paulocorcino/gh-get]` (no site expected). D6: jscpd, with `docs/lint-scripts/` and the plan's code blocks in its ignore list (not the repo's code).
 - GOOS matrix: the release builds other platforms; run the lint with `GOOS=windows` and `GOOS=linux` (a runner per OS), so code under build constraints is read.
