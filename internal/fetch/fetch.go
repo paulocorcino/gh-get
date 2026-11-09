@@ -85,7 +85,7 @@ func (c *Client) download(src ghurl.Source, destDir string, warn func(string)) e
 	}
 
 	if len(entries) == 0 {
-		return errFolderNotFound{path: src.Path}
+		return folderNotFoundError{path: src.Path}
 	}
 
 	if len(entries) > tarballThreshold {
@@ -105,8 +105,8 @@ func (c *Client) download(src ghurl.Source, destDir string, warn func(string)) e
 	return nil
 }
 
-type errFolderNotFound struct{ path string }
+type folderNotFoundError struct{ path string }
 
-func (e errFolderNotFound) Error() string {
+func (e folderNotFoundError) Error() string {
 	return "folder not found in repository: " + e.path
 }

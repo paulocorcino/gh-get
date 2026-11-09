@@ -64,8 +64,6 @@ linters:
     - govet
     # debt: 5 sites
     - gochecknoglobals
-    # debt: 5 sites
-    - nonamedreturns
     # debt: 4 sites
     - revive
     # debt: 3 sites
@@ -78,14 +76,6 @@ linters:
     - errorlint
     # debt: 2 sites
     - nestif
-    # debt: 2 sites
-    - thelper
-    # debt: 1 site
-    - containedctx
-    # debt: 1 site
-    - embeddedstructfieldcheck
-    # debt: 1 site
-    - errname
   settings:
     depguard:
       rules:

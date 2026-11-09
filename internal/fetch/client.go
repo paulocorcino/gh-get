@@ -157,7 +157,8 @@ func (c *Client) send(rawurl string, header func(http.Header)) (*http.Response, 
 // stallBody cancels its request when no data arrives for the given duration.
 type stallBody struct {
 	io.ReadCloser
-	ctx    context.Context
+
+	cause  func() error
 	timer  *time.Timer
 	stall  time.Duration
 	cancel context.CancelCauseFunc
@@ -166,7 +167,7 @@ type stallBody struct {
 func newStallBody(ctx context.Context, body io.ReadCloser, stall time.Duration, cancel context.CancelCauseFunc) *stallBody {
 	return &stallBody{
 		ReadCloser: body,
-		ctx:        ctx,
+		cause:      func() error { return context.Cause(ctx) },
 		timer:      time.AfterFunc(stall, func() { cancel(errStalled) }),
 		stall:      stall,
 		cancel:     cancel,
@@ -178,7 +179,7 @@ func (b *stallBody) Read(p []byte) (int, error) {
 	if n > 0 {
 		b.timer.Reset(b.stall)
 	}
-	if err != nil && errors.Is(context.Cause(b.ctx), errStalled) {
+	if err != nil && errors.Is(b.cause(), errStalled) {
 		err = errStalled
 	}
 	return n, err

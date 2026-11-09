@@ -23,7 +23,7 @@ type treeEntry struct {
 // listFolder returns the blob entries that live inside src.Path (recursively),
 // using the Trees API at the resolved commit. ok is false when the listing was
 // truncated (huge repo), signalling the caller to use the tarball path.
-func (c *Client) listFolder(src ghurl.Source) (entries []treeEntry, ok bool, err error) {
+func (c *Client) listFolder(src ghurl.Source) ([]treeEntry, bool, error) {
 	tr, err := c.tree(src.Owner, src.Repo, src.Commit)
 	if err != nil {
 		return nil, false, err
@@ -33,6 +33,7 @@ func (c *Client) listFolder(src ghurl.Source) (entries []treeEntry, ok bool, err
 	}
 
 	folder := strings.Trim(src.Path, "/")
+	var entries []treeEntry
 	for _, e := range tr.Tree {
 		if e.Type != "blob" {
 			continue

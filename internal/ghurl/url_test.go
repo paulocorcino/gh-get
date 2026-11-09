@@ -71,6 +71,7 @@ func TestParse(t *testing.T) {
 
 // noDefault fails the test if the default-branch resolver is unexpectedly used.
 func noDefault(t *testing.T) func() (string, error) {
+	t.Helper()
 	return func() (string, error) {
 		t.Helper()
 		t.Fatal("defaultBranch should not be called when URL carries a ref")
@@ -166,6 +167,7 @@ func TestResolve_BareRepoUsesDefaultBranch(t *testing.T) {
 
 // noCheck fails the test if a per-ref probe is made where the listing suffices.
 func noCheck(t *testing.T) RefChecker {
+	t.Helper()
 	return func(ref string) (string, bool, error) {
 		t.Helper()
 		t.Fatalf("check(%q) should not be called", ref)
@@ -174,7 +176,7 @@ func noCheck(t *testing.T) RefChecker {
 }
 
 func lister(refs map[string]string, complete bool, calls *int) RefLister {
-	return func(prefix string) (map[string]string, bool, error) {
+	return func(_ string) (map[string]string, bool, error) {
 		*calls++
 		return refs, complete, nil
 	}

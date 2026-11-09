@@ -41,7 +41,7 @@ func TestDo_StalledBodyFails(t *testing.T) {
 }
 
 func TestDo_SlowButSteadyBodySucceeds(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		for range 5 {
 			w.Write([]byte("x"))
 			w.(http.Flusher).Flush()
