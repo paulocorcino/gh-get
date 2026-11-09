@@ -90,13 +90,7 @@ func TestResolve_SimpleBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := func(ref string) (string, bool, error) {
-		if ref == "main" {
-			return "abc123", true, nil
-		}
-		return "", false, nil
-	}
-	src, err := p.Resolve(check, nil, noDefault(t))
+	src, err := p.Resolve(onlyMain("abc123"), nil, noDefault(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,13 +141,7 @@ func TestResolve_WholeBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	check := func(ref string) (string, bool, error) {
-		if ref == "main" {
-			return "sha", true, nil
-		}
-		return "", false, nil
-	}
-	src, err := p.Resolve(check, nil, noDefault(t))
+	src, err := p.Resolve(onlyMain("sha"), nil, noDefault(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,4 +303,14 @@ func join(s []string) string {
 		out.WriteString(x)
 	}
 	return out.String()
+}
+
+// onlyMain is a ref check that knows the branch "main" at commit sha and nothing else.
+func onlyMain(sha string) func(string) (string, bool, error) {
+	return func(ref string) (string, bool, error) {
+		if ref == "main" {
+			return sha, true, nil
+		}
+		return "", false, nil
+	}
 }

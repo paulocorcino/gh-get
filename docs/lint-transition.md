@@ -124,7 +124,7 @@ issues:
 
 Commit `e6aeaa3` (main), 2026-11-08. golangci-lint 2.15.0 (go install, go1.26.4 local; CI pinned to go 1.26.10), deadcode v0.52.0, govulncheck v1.9.0 (could not run again locally: the antivirus quarantines the build; the 15 findings come from its one successful run). Files read: 31 of 31 tracked `.go` files (`go list` sums to 31).
 
-```
+```text
 golangci-lint run -c <draft>.golangci.yml --output.json.path=gl.json ./...   # draft = go.md target, relative-path-mode: wd
 python docs/lint-scripts/tally.py golangci gl.json --json gl-t.json --scope-depth 2
 python docs/lint-scripts/tally.py curve golangci low.json --rule gocognit      # low.json: min-complexity 1, argument-limit 0
@@ -193,12 +193,13 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 - **Rules**: none. **Slices**: one commit per item.
 - Done: `govulncheck` v1.9.0 is a row in `scripts/check.sh`; CI (go 1.26.10) reports 0 findings. A local go older than 1.26.10 fails this row on standard-library findings: upgrade the toolchain.
 - Pins: a test or step that compares the CI `go-version`, `GOLANGCI_LINT_VERSION` and `DEADCODE_VERSION` in `scripts/check.sh` with the versions this plan names; `go run pkg@version` is verified by the Go checksum database. A scheduled job that opens an issue when a pinned tool has a newer release (`drift.py age`).
-- A per-edit agent hook (fast: `golangci-lint run` on the changed package and `golangci-lint fmt --diff`) that also refuses `--no-verify`, force push, and unasked edits to `.golangci.yml`; then replace the "no per-edit hook yet" line in `AGENTS.md`.
+- Done: per-edit hooks for Claude Code in `.claude/settings.json` (`scripts/agent-hook.py`): formatter and linter on the edited package after a Go edit, the no-verify and no-gpg-sign flags and force push refused (git arguments only, not quoted text), an edit to a gate file asks first. Open: the same hook for other agents (Codex, Cursor), and a lint for the hook script itself.
 - Done: actions pinned by SHA, `persist-credentials: false`, `softprops/action-gh-release` replaced by `gh release create`; actionlint v1.7.12 and zizmor 1.32.0 are a row in `scripts/check.sh` at 0 findings.
 - Done: `main` is protected (pull requests only, the `test` check required and up to date, no force push, no deletion; admins are not forced, so the owner can bypass in an emergency).
-- Done: gitleaks v8.30.1, typos 1.52.0, shellcheck 0.11.0.1 and shfmt v3.13.1 are rows in `scripts/check.sh` at 0 findings; `.github/dependabot.yml` bumps the pinned actions weekly with a 7-day cooldown. Open: markdownlint, yamllint and lychee for docs.
-- D4: `depguard` on with `list-mode: strict` and `allow: [$gostd, github.com/paulocorcino/gh-get]` (no site expected). D6: jscpd, with `docs/lint-scripts/` and the plan's code blocks in its ignore list (not the repo's code).
-- GOOS matrix: the release builds other platforms; run the lint with `GOOS=windows` and `GOOS=linux` (a runner per OS), so code under build constraints is read.
+- Done: gitleaks v8.30.1, typos 1.52.0, shellcheck 0.11.0.1 and shfmt v3.13.1 are rows in `scripts/check.sh` at 0 findings; `.github/dependabot.yml` bumps the pinned actions weekly with a 7-day cooldown.
+- Done: yamllint 1.38.0 (`.yamllint.yml`) and markdownlint-cli2 0.18.1 (`.markdownlint-cli2.yaml`) are a row in `scripts/check.sh`; the staged-plan files (`docs/plans/`) and the skill scripts are out of markdownlint, with the reason in the config. Open: lychee (links), which needs a binary download checked by checksum and network access.
+- D4: `depguard` on with `list-mode: strict` and `allow: [$gostd, github.com/paulocorcino/gh-get]` (no site expected). D6 done: jscpd 4.0.5 (`.jscpd.json`: 50 tokens, 5 lines, threshold 0, `docs/` ignored) is a row in `scripts/check.sh`. One clone in `internal/ghurl/url_test.go` (the same ref check written twice) became the helper `onlyMain`; the count is 0, so any new clone fails.
+- Done: `go vet` runs under `GOOS=windows`, `linux` and `darwin` (a row in `scripts/check.sh`). A per-GOOS `golangci-lint` run is not added: the repo has no file under a build constraint (`runtime.GOOS` branches are runtime ones, read by every run), and the lint gave 0 issues under `GOOS=windows`. Revisit when the first `//go:build` or `_windows.go` file appears.
 - **Done when**: `scripts/check.sh` has a row per item above and CI is green.
 
 ### Phase 1: mechanical and surface (Fix by command, then Fix then flip)
