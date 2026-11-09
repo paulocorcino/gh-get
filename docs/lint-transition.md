@@ -191,7 +191,7 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 ### Phase 0: the gate itself
 
 - **Rules**: none. **Slices**: one commit per item.
-- Add `govulncheck` to `scripts/check.sh` (`go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...`): 15 standard-library findings at go1.26.4; CI is already pinned at go 1.26.10. Re-measure in CI before adding; if findings remain, pin the first fixing release.
+- Done: `govulncheck` v1.9.0 is a row in `scripts/check.sh`; CI (go 1.26.10) reports 0 findings. Locally the binary is quarantined by Defender, so CI is where it runs.
 - Pins: a test or step that compares the CI `go-version`, `GOLANGCI_LINT_VERSION` and `DEADCODE_VERSION` in `scripts/check.sh` with the versions this plan names; `go run pkg@version` is verified by the Go checksum database. A scheduled job that opens an issue when a pinned tool has a newer release (`drift.py age`).
 - A per-edit agent hook (fast: `golangci-lint run` on the changed package and `golangci-lint fmt --diff`) that also refuses `--no-verify`, force push, and unasked edits to `.golangci.yml`; then replace the "no per-edit hook yet" line in `AGENTS.md`.
 - Protected `main`: pull requests only, `Gate` required, no force push (GitHub setting). Pin actions by SHA, set a Dependabot cooldown; add actionlint and zizmor to the gate.
