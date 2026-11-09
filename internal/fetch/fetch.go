@@ -52,25 +52,35 @@ func (c *Client) Materialize(src ghurl.Source, destDir string, mode WriteMode, p
 		return nil, err
 	}
 
-	switch mode {
-	case Replace:
-		if err := clearContents(destDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
-		}
-	case Merge:
-		// Merge overlays onto the existing files; nothing to clear first.
-	case Sync:
-		if err := pruneStale(destDir, prev, files); err != nil {
-			return nil, err
-		}
-	}
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return nil, fmt.Errorf("creating destination %s: %w", destDir, err)
+	if err := prepareDest(destDir, mode, prev, files); err != nil {
+		return nil, err
 	}
 	if err := publishTree(tmp, destDir, warn); err != nil {
 		return nil, err
 	}
 	return files, nil
+}
+
+// prepareDest readies destDir for publishing files according to mode: Replace
+// clears it, Sync prunes what prev wrote and files no longer has, Merge leaves
+// it as is. destDir exists afterwards.
+func prepareDest(destDir string, mode WriteMode, prev, files []string) error {
+	switch mode {
+	case Replace:
+		if err := clearContents(destDir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	case Merge:
+		// Merge overlays onto the existing files; nothing to clear first.
+	case Sync:
+		if err := pruneStale(destDir, prev, files); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("creating destination %s: %w", destDir, err)
+	}
+	return nil
 }
 
 // download writes the folder referenced by src into destDir, which must already

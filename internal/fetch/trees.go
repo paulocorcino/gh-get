@@ -81,31 +81,33 @@ func (c *Client) downloadViaTrees(src ghurl.Source, entries []treeEntry, destDir
 		if !ok {
 			continue
 		}
-
-		rawURL := fmt.Sprintf("%s/%s/%s/%s/%s",
-			rawBase, src.Owner, src.Repo, url.PathEscape(src.Commit), escapePath(e.Path))
-
-		data, err := c.get(rawURL, "")
-		if err != nil {
+		if err := c.writeBlob(src, e, destDir, rel, warn); err != nil {
 			return err // includes rateLimitError for fallback
-		}
-
-		dest, err := safeJoin(destDir, rel)
-		if err != nil {
-			return err
-		}
-
-		if e.Mode == "120000" { // symlink: blob content is the target path
-			if err := writeSymlink(dest, strings.TrimSpace(string(data)), warn); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := writeFile(dest, data, e.Mode == "100755"); err != nil {
-			return err
 		}
 	}
 	return nil
+}
+
+// writeBlob fetches the blob of e from raw.githubusercontent and writes it at
+// rel under destDir, as a symlink when its mode says so.
+func (c *Client) writeBlob(src ghurl.Source, e treeEntry, destDir, rel string, warn func(string)) error {
+	rawURL := fmt.Sprintf("%s/%s/%s/%s/%s",
+		rawBase, src.Owner, src.Repo, url.PathEscape(src.Commit), escapePath(e.Path))
+
+	data, err := c.get(rawURL, "")
+	if err != nil {
+		return err // includes rateLimitError for fallback
+	}
+
+	dest, err := safeJoin(destDir, rel)
+	if err != nil {
+		return err
+	}
+
+	if e.Mode == "120000" { // symlink: blob content is the target path
+		return writeSymlink(dest, strings.TrimSpace(string(data)), warn)
+	}
+	return writeFile(dest, data, e.Mode == "100755")
 }
 
 func escapePath(p string) string {

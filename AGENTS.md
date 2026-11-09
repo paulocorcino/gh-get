@@ -13,7 +13,6 @@ gh-get downloads a folder (or a whole repo) from GitHub. Domain terms: `CONTEXT.
   - formatting and import order are the formatter's: run `golangci-lint fmt` (the exact command is in `scripts/check.sh`), do not edit by hand.
 - An exception is the last resort: `//nolint:<linter> // <why>`, with a reason that says why the rule is wrong at that line. A bare, reasonless or unused `//nolint` fails the gate.
 - `.golangci.yml`, `docs/lint-transition.md` and ratchet constants change only when the task is about them, and a count only goes down: a linter leaves the `disable` list when its debt reaches 0, and never joins it.
-- The remaining debt, its order and its fix recipes are in `docs/lint-transition.md`.
 
 ## Tools
 

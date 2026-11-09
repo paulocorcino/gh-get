@@ -5,15 +5,18 @@ import (
 	"testing"
 )
 
+// parseCase is one URL TestParse feeds to Parse, with the expected result.
+type parseCase struct {
+	name           string
+	in             string
+	wantOwner      string
+	wantRepo       string
+	wantRestJoined string
+	wantErr        bool
+}
+
 func TestParse(t *testing.T) {
-	cases := []struct {
-		name           string
-		in             string
-		wantOwner      string
-		wantRepo       string
-		wantRestJoined string
-		wantErr        bool
-	}{
+	cases := []parseCase{
 		{
 			name:           "tree url",
 			in:             "https://github.com/mattpocock/skills/tree/main/skills/productivity/handoff",
@@ -48,24 +51,27 @@ func TestParse(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			p, err := Parse(tc.in)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("expected error, got none")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if p.Owner != tc.wantOwner || p.Repo != tc.wantRepo {
-				t.Fatalf("owner/repo = %s/%s, want %s/%s", p.Owner, p.Repo, tc.wantOwner, tc.wantRepo)
-			}
-			if got := join(p.rest); got != tc.wantRestJoined {
-				t.Fatalf("rest = %q, want %q", got, tc.wantRestJoined)
-			}
-		})
+		t.Run(tc.name, tc.run)
+	}
+}
+
+// run is the subtest of one parseCase.
+func (tc parseCase) run(t *testing.T) {
+	p, err := Parse(tc.in)
+	if tc.wantErr {
+		if err == nil {
+			t.Fatalf("expected error, got none")
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.Owner != tc.wantOwner || p.Repo != tc.wantRepo {
+		t.Fatalf("owner/repo = %s/%s, want %s/%s", p.Owner, p.Repo, tc.wantOwner, tc.wantRepo)
+	}
+	if got := join(p.rest); got != tc.wantRestJoined {
+		t.Fatalf("rest = %q, want %q", got, tc.wantRestJoined)
 	}
 }
 

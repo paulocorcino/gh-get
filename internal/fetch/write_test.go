@@ -89,13 +89,7 @@ func TestClearContents_KeepsDirRemovesEntries(t *testing.T) {
 func TestPruneStale_RemovesOnlyTrackedStaleFiles(t *testing.T) {
 	dir := t.TempDir()
 	for _, p := range []string{"keep.md", "old/gone.md", "mine/notes.txt", "shared/old.md", "shared/user.txt"} {
-		full := filepath.Join(dir, filepath.FromSlash(p))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		mustWrite(t, filepath.Join(dir, filepath.FromSlash(p)), "x")
 	}
 	prev := []string{"keep.md", "old/gone.md", "shared/old.md", "../escape.md"}
 	if err := pruneStale(dir, prev, []string{"keep.md"}); err != nil {

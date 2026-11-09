@@ -100,26 +100,9 @@ func TestRateLimitedRunAvoidsAPI(t *testing.T) {
 		"r-" + shaFeat + "/other/b.txt": "bravo",
 	})
 	apiCalls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch p := r.URL.Path; {
-		case strings.HasPrefix(p, "/api/"):
-			apiCalls++
-			w.WriteHeader(http.StatusForbidden)
-		case p == "/git/o/r.git/info/refs":
-			write(t, w, []byte(advertisementBody()))
-		case p == "/codeload/o/r/tar.gz/"+shaFeat:
-			write(t, w, tarball)
-		default:
-			t.Errorf("unexpected request %s", p)
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
+	srv := rateLimitedServer(t, tarball, &apiCalls)
 	defer srv.Close()
-	for ptr, val := range map[*string]string{&apiBase: "/api", &gitBase: "/git", &codeloadBase: "/codeload"} {
-		old := *ptr
-		*ptr = srv.URL + val
-		defer func() { *ptr = old }()
-	}
+	pointBasesAt(t, srv.URL)
 
 	var warnings []string
 	c := New("", func(s string) { warnings = append(warnings, s) })
@@ -153,5 +136,36 @@ func TestRateLimitedRunAvoidsAPI(t *testing.T) {
 	}
 	if len(warnings) != 1 {
 		t.Fatalf("warnings = %q, want exactly one", warnings)
+	}
+}
+
+// rateLimitedServer answers every API request with 403 (counting them in
+// apiCalls), the git endpoint with advertisementBody and codeload with tarball.
+func rateLimitedServer(t *testing.T, tarball []byte, apiCalls *int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch p := r.URL.Path; {
+		case strings.HasPrefix(p, "/api/"):
+			*apiCalls++
+			w.WriteHeader(http.StatusForbidden)
+		case p == "/git/o/r.git/info/refs":
+			write(t, w, []byte(advertisementBody()))
+		case p == "/codeload/o/r/tar.gz/"+shaFeat:
+			write(t, w, tarball)
+		default:
+			t.Errorf("unexpected request %s", p)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
+
+// pointBasesAt routes the API, git and codeload bases to the server at base
+// until the test ends.
+func pointBasesAt(t *testing.T, base string) {
+	t.Helper()
+	for ptr, val := range map[*string]string{&apiBase: "/api", &gitBase: "/git", &codeloadBase: "/codeload"} {
+		old := *ptr
+		*ptr = base + val
+		t.Cleanup(func() { *ptr = old })
 	}
 }

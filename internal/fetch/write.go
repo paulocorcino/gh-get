@@ -69,39 +69,8 @@ func publishTree(src, dst string, warn func(string)) error {
 	if err != nil {
 		return fmt.Errorf("publishing %s: %w", src, err)
 	}
-	err = filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return fmt.Errorf("relating %s to %s: %w", path, src, err)
-		}
-		if rel == "." {
-			return nil
-		}
-		target := filepath.Join(dst, rel)
-
-		switch {
-		case info.IsDir():
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return fmt.Errorf("creating %s: %w", target, err)
-			}
-			return nil
-		case info.Mode()&os.ModeSymlink != 0:
-			link, err := root.Readlink(rel)
-			if err != nil {
-				return fmt.Errorf("reading link %s: %w", path, err)
-			}
-			return writeSymlink(target, link, warn)
-		default:
-			data, err := root.ReadFile(rel)
-			if err != nil {
-				return fmt.Errorf("reading %s: %w", path, err)
-			}
-			return writeFile(target, data, info.Mode()&0o111 != 0)
-		}
-	})
+	p := publisher{root: root, src: src, dst: dst, warn: warn}
+	err = filepath.Walk(src, p.visit)
 	if cerr := root.Close(); cerr != nil && err == nil {
 		err = cerr
 	}
@@ -109,6 +78,54 @@ func publishTree(src, dst string, warn func(string)) error {
 		return fmt.Errorf("publishing %s: %w", src, err)
 	}
 	return nil
+}
+
+// publisher holds what publishTree's walk needs to copy one entry: src opened
+// as root for reading, and dst to write into.
+type publisher struct {
+	root     *os.Root
+	src, dst string
+	warn     func(string)
+}
+
+// visit is the filepath.WalkFunc of publishTree: it copies each entry below
+// src (not src itself) to the same relative path under dst.
+func (p publisher) visit(path string, info os.FileInfo, err error) error {
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(p.src, path)
+	if err != nil {
+		return fmt.Errorf("relating %s to %s: %w", path, p.src, err)
+	}
+	if rel == "." {
+		return nil
+	}
+	return p.copyEntry(path, rel, info)
+}
+
+// copyEntry creates the directory, symlink or file at rel under dst.
+func (p publisher) copyEntry(path, rel string, info os.FileInfo) error {
+	target := filepath.Join(p.dst, rel)
+	switch {
+	case info.IsDir():
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			return fmt.Errorf("creating %s: %w", target, err)
+		}
+		return nil
+	case info.Mode()&os.ModeSymlink != 0:
+		link, err := p.root.Readlink(rel)
+		if err != nil {
+			return fmt.Errorf("reading link %s: %w", path, err)
+		}
+		return writeSymlink(target, link, p.warn)
+	default:
+		data, err := p.root.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", path, err)
+		}
+		return writeFile(target, data, info.Mode()&0o111 != 0)
+	}
 }
 
 // clearContents removes every entry inside dir without removing dir itself. The
@@ -159,21 +176,40 @@ func pruneStale(dir string, prev, keep []string) error {
 	}
 	root := filepath.Clean(dir)
 	for _, p := range prev {
-		if kept[p] {
+		target, ok := staleTarget(root, p)
+		if kept[p] || !ok {
 			continue
 		}
-		target, err := safeJoin(root, p)
-		if err != nil || target == root {
-			continue
-		}
-		if err := os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("removing stale %s: %w", target, err)
-		}
-		for d := filepath.Dir(target); d != root && strings.HasPrefix(d, root); d = filepath.Dir(d) {
-			if os.Remove(d) != nil {
-				break // not empty (or already gone): stop climbing
-			}
+		if err := removeStale(root, target); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// staleTarget returns the path of the tracked file p under root. ok is false
+// when p escapes root or names root itself, so it is never touched.
+func staleTarget(root, p string) (string, bool) {
+	target, err := safeJoin(root, p)
+	return target, err == nil && target != root
+}
+
+// removeStale deletes the stale file target under root, then each parent
+// directory the deletion left empty, stopping below root.
+func removeStale(root, target string) error {
+	if err := os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("removing stale %s: %w", target, err)
+	}
+	removeEmptyParents(root, target)
+	return nil
+}
+
+// removeEmptyParents removes each parent directory of target below root,
+// climbing until one is not empty (or already gone).
+func removeEmptyParents(root, target string) {
+	for d := filepath.Dir(target); d != root && strings.HasPrefix(d, root); d = filepath.Dir(d) {
+		if os.Remove(d) != nil {
+			return // not empty (or already gone): stop climbing
+		}
+	}
 }
