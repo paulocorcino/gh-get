@@ -178,7 +178,7 @@ Existing suppressions: `//nolint` 0, `//go:build ignore` 0, `_ =` / `_, _` on a 
 - **D1 (taken)** `noinlineerr` off as noise: it bans the idiomatic `if err := f(); err != nil`; style only.
 - **D2 (taken)** Terminal output goes through an injected `io.Writer`; only `main` calls `os.Exit`. Holds phase 3.
 - **D3 (open)** Which package owns file writes with their modes, process spawns (`gosec` G204/G306/G304/G703/G122) and waiting in tests (`time.Sleep`). Options: one `internal/` package owns each capability and carries the one `//nolint` per call (recommended); or each call site carries its own reason (more exceptions to count). Holds the capability rows of phase 4.
-- **D4 (open)** Layer boundaries for `depguard` (`strict` list: `$gostd` and the module path; the module has no dependencies). Recommended: turn it on with that list in phase 0. Costs nothing today.
+- **D4 (taken)** Layer boundaries for `depguard` (`strict` list: `$gostd` and the module path; the module has no dependencies). Recommended: turn it on with that list in phase 0. Costs nothing today.
 - **D5 (open)** Whether tests run in parallel (`paralleltest`, `tparallel`). Recommended: no for now; keep them off with this decision as the reason until the test suite is shared-state free.
 - **D6 (open)** jscpd for duplicate blocks (needs Node or a pinned binary with checksum): recommended, at 50 tokens / 5 lines, `--fail-on-new-clones 0` plus a count ratchet. Not measured in this run.
 
@@ -341,3 +341,4 @@ Order: cheap mechanical fixes first (they shrink the noise), then dropped values
 ## Progress
 
 - 2026-11-08, step 5: every rule with 0 sites is an error; 425 sites listed as debt, 94 `noinlineerr` sites as noise.
+- 2026-11-08, lint(stage 1): `depguard` on with `list-mode: strict`, allow `$gostd` and the module path (D4 taken, 0 sites); `scripts/lint-only.sh <linter> [paths]` runs one linter while it is in the debt list.

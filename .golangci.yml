@@ -6,8 +6,6 @@ linters:
   disable:
     # noise: one complexity measure: gocognit
     - cyclop
-    # noise: decision first: on with the rules of the layers (D4)
-    - depguard
     # noise: jscpd measures clones across the repo
     - dupl
     # noise: deprecated; forces every field in every literal, against zero values
@@ -99,6 +97,15 @@ linters:
     # debt: 1 site
     - intrange
   settings:
+    depguard:
+      rules:
+        main:
+          list-mode: strict
+          files:
+            - $all
+          allow:
+            - $gostd
+            - github.com/paulocorcino/gh-get
     gocognit:
       min-complexity: 10
     nestif:
