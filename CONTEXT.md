@@ -159,7 +159,7 @@ later via `gh-get update`.
 
 ## Proposed structure
 
-```
+```text
 gh-get/
 ├── go.mod                      # module github.com/paulocorcino/gh-get
 ├── main.go                     # arg parsing, routing (download | update | help | version)
